@@ -1,0 +1,34 @@
+name: ci
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  good-tree-passes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          path: tests/fixtures/good
+          token: ${{ secrets.HARNESS_TOKEN }}
+
+  bad-tree-must-fail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - id: lint
+        continue-on-error: true
+        uses: ./
+        with:
+          path: tests/fixtures/bad
+          token: ${{ secrets.HARNESS_TOKEN }}
+      - name: Assert the linter failed
+        run: |
+          if [ "${{ steps.lint.outcome }}" != "failure" ]; then
+            echo "::error::The linter passed a tree it must reject"
+            exit 1
+          fi
