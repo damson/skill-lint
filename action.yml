@@ -1,6 +1,6 @@
 name: Skill Lint
 description: >
-  Structural linter for Claude Code skills. Catches the four failures that are
+  Structural linter for Claude Code skills. Catches the failures that are
   silent at install time and confusing later — a name that does not match its
   folder, an empty description, a skill with no procedure or no stopping rule,
   and duplicate leaf names that shadow each other in the flat install namespace.
@@ -17,11 +17,7 @@ inputs:
   harness-ref:
     description: Commit of damson/agent-config-harness to run the linter from. Pinned so a harness change cannot silently change what this action enforces.
     required: false
-    default: c91137cee872f5b2700600a1fcd078670127d8ee
-  token:
-    description: Token with read access to the harness repo. Only needed while the harness is private.
-    required: false
-    default: ""
+    default: f0119ea6c34f0524f5278192af8dedb7f50a079a
 
 runs:
   using: composite
@@ -29,27 +25,11 @@ runs:
     - name: Fetch the linter at its pinned commit
       shell: bash
       env:
-        HARNESS_TOKEN: ${{ inputs.token }}
         HARNESS_REF: ${{ inputs.harness-ref }}
-      run: |
-        set -euo pipefail
-        dir="$RUNNER_TEMP/agent-config-harness"
-        rm -rf "$dir"
-        git init -q "$dir"
-        auth_args=()
-        if [ -n "$HARNESS_TOKEN" ]; then
-          auth=$(printf 'x-access-token:%s' "$HARNESS_TOKEN" | base64 | tr -d '\n')
-          auth_args=(-c "http.extraheader=AUTHORIZATION: basic $auth")
-        fi
-        git -C "$dir" "${auth_args[@]+"${auth_args[@]}"}" fetch -q --depth 1 \
-          https://github.com/damson/agent-config-harness "$HARNESS_REF"
-        git -C "$dir" checkout -q FETCH_HEAD
+      run: '"$GITHUB_ACTION_PATH/bin/fetch-harness.sh" "$HARNESS_REF" "$RUNNER_TEMP/agent-config-harness"'
 
     - name: Lint the skills tree
       shell: bash
       env:
         SKILLS_PATH: ${{ inputs.path }}
-      run: |
-        set -euo pipefail
-        [ -d "$SKILLS_PATH" ] || { echo "::error::No such directory: $SKILLS_PATH"; exit 1; }
-        "$RUNNER_TEMP/agent-config-harness/bin/validate-skills.sh" "$SKILLS_PATH"
+      run: '"$GITHUB_ACTION_PATH/bin/run-lint.sh" "$RUNNER_TEMP/agent-config-harness" "$SKILLS_PATH"'
