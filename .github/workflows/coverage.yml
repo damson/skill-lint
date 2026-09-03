@@ -1,0 +1,69 @@
+name: Coverage
+
+# kcov measures the bats suite's line coverage of bin/ and hands the result
+# to Codecov, which owns the PR comment and the README badge. Informational
+# only — codecov.yml marks every status non-blocking; ci.yml stays the gate.
+permissions:
+  contents: read
+  id-token: write
+
+on:
+  pull_request:
+  push:
+    branches: [develop]
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: Coverage report
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install bats
+        run: sudo apt-get update -q && sudo apt-get install -y -q bats
+
+      # Ubuntu 24.04 carries no kcov package; build a pinned release once and
+      # let the cache make every later run a no-op.
+      - name: Restore kcov from cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.local/kcov
+          key: kcov-43-${{ runner.os }}-noble
+
+      - name: Build kcov if the cache missed
+        timeout-minutes: 10
+        run: .github/install-kcov.sh
+
+      - name: Run the suite under kcov
+        run: |
+          set -euo pipefail
+          "$HOME/.local/kcov/bin/kcov" \
+               --include-path="$PWD/bin" \
+               --bash-parse-files-in-dir="$PWD/bin" \
+               --exclude-pattern=/tests/ \
+               coverage-out "$(command -v bats)" tests/
+          xml="coverage-out/kcov-merged/cobertura.xml"
+          if [ ! -f "$xml" ]; then
+            xml=$(find coverage-out -maxdepth 2 -name cobertura.xml | sort | head -1)
+          fi
+          if [ -z "$xml" ] || [ ! -f "$xml" ]; then
+            echo "::error::kcov produced no cobertura.xml — tree follows"
+            find coverage-out -maxdepth 3 | head -40
+            exit 1
+          fi
+          echo "COBERTURA=$xml" >> "$GITHUB_ENV"
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        with:
+          files: ${{ env.COBERTURA }}
+          # Without this the uploader also auto-collects anything whose name
+          # matches its search patterns and reports it as coverage.
+          disable_search: true
+          use_oidc: true
+          fail_ci_if_error: false

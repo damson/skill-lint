@@ -1,0 +1,37 @@
+# CodeRabbit configuration — https://docs.coderabbit.ai/reference/configuration
+#
+# Aligned with the sibling repos (agent-config-harness, hard-won-skills):
+#   - high_level_summary is OFF: the PR template's "High-level summary"
+#     section is written by a human on purpose.
+#   - base_branches lists develop: this repo runs gitflow, so nearly every PR
+#     targets develop, not the default branch.
+
+language: "en-US"
+
+reviews:
+  profile: "chill"
+  high_level_summary: false
+  poem: false
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    base_branches:
+      - "develop"
+  path_instructions:
+    - path: "bin/**"
+      instructions: |
+        House invariants: every script starts with `set -euo pipefail` and
+        must run on stock macOS bash 3.2 and Linux — no `declare -A`, no
+        GNU-only flags without a fallback. The check logic itself lives
+        upstream in agent-config-harness; these scripts are plumbing only,
+        and a PR that adds lint rules here should be redirected upstream.
+    - path: "tests/**"
+      instructions: |
+        bats conventions: a `[[ ]]` assertion is inert unless it is the last
+        line of its test — flag any mid-test bare `[[ ]]`. Tests must not
+        touch the network; the fixture-remote pattern in lint.bats is the
+        house pattern.
+    - path: "tests/fixtures/**"
+      instructions: |
+        Deliberately broken SKILL.md files live under fixtures/bad — do not
+        flag their defects; they are the point.

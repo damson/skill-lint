@@ -1,0 +1,16 @@
+# Codecov owns the coverage PR comment and the README badge. Everything is
+# informational: the bats suite and fixture jobs in ci.yml are the gate,
+# coverage is the trend.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "condensed_header, diff, files"
+  behavior: default
+  require_changes: false
