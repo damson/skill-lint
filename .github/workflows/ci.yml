@@ -4,7 +4,20 @@ on:
     branches: [main, develop]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bats
+        run: sudo apt-get update -q && sudo apt-get install -y -q bats
+      - name: Run the suite
+        run: bats tests/
+
   good-tree-passes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -13,19 +26,22 @@ jobs:
       - uses: ./
         with:
           path: tests/fixtures/good
-          token: ${{ secrets.HARNESS_TOKEN }}
 
   bad-tree-must-fail:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: Prove the pinned harness ref is fetchable, so a failure below means lint
+        run: |
+          set -euo pipefail
+          ref="$(awk '/harness-ref:/{f=1} f && /default:/{print $2; exit}' action.yml)"
+          ./bin/fetch-harness.sh "$ref" "$RUNNER_TEMP/canary"
       - id: lint
         continue-on-error: true
         uses: ./
         with:
           path: tests/fixtures/bad
-          token: ${{ secrets.HARNESS_TOKEN }}
       - name: Assert the linter failed
         run: |
           if [ "${{ steps.lint.outcome }}" != "failure" ]; then
