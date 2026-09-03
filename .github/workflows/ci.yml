@@ -4,7 +4,20 @@ on:
     branches: [main, develop]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bats
+        run: sudo apt-get update -q && sudo apt-get install -y -q bats
+      - name: Run the suite
+        run: bats tests/
+
   good-tree-passes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -13,31 +26,22 @@ jobs:
       - uses: ./
         with:
           path: tests/fixtures/good
-          token: ${{ secrets.HARNESS_TOKEN }}
 
   bad-tree-must-fail:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Prove the harness is reachable, so a failure below means lint
-        env:
-          HARNESS_TOKEN: ${{ secrets.HARNESS_TOKEN }}
+      - name: Prove the pinned harness ref is fetchable, so a failure below means lint
         run: |
           set -euo pipefail
-          auth_args=()
-          if [ -n "$HARNESS_TOKEN" ]; then
-            auth=$(printf 'x-access-token:%s' "$HARNESS_TOKEN" | base64 | tr -d '\n')
-            auth_args=(-c "http.extraheader=AUTHORIZATION: basic $auth")
-          fi
-          git "${auth_args[@]+"${auth_args[@]}"}" ls-remote \
-            https://github.com/damson/agent-config-harness HEAD >/dev/null
+          ref="$(awk '/harness-ref:/{f=1} f && /default:/{print $2; exit}' action.yml)"
+          ./bin/fetch-harness.sh "$ref" "$RUNNER_TEMP/canary"
       - id: lint
         continue-on-error: true
         uses: ./
         with:
           path: tests/fixtures/bad
-          token: ${{ secrets.HARNESS_TOKEN }}
       - name: Assert the linter failed
         run: |
           if [ "${{ steps.lint.outcome }}" != "failure" ]; then

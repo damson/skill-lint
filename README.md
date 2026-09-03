@@ -1,5 +1,8 @@
 # skill-lint
 
+[![ci](https://github.com/damson/skill-lint/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/damson/skill-lint/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/damson/skill-lint)](LICENSE)
+
 **A friendly structural linter for Claude Code skills.**
 
 Hi! 👋 If you write [skills](https://code.claude.com/docs/en/skills) for Claude
@@ -75,13 +78,21 @@ No cryptic exit codes — each finding says what's wrong and what to do about it
 |---|---|---|
 | `path` | `skills` | Directory holding the skills to lint |
 | `harness-ref` | pinned commit | The exact linter version this action runs |
-| `token` | — | Read token for the harness repo; only needed while it is private |
+
+No token, ever — the harness is public and the fetch is anonymous.
 
 ## A linter that tests itself
 
 This repo's own CI lints a known-good fixture tree **and asserts a known-bad
 tree fails** — a linter whose failure mode is untested is decoration. If you
 add a check, add the fixture that proves it can fail.
+
+The plumbing has its own bats suite too (fetching the pinned linter, wiring
+the paths, propagating failures — all against local fixtures, no network):
+
+```bash
+bats tests/
+```
 
 ## Contributing
 
