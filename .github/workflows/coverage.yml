@@ -9,12 +9,21 @@ permissions:
 
 on:
   pull_request:
+  # Both long-lived branches, because Codecov diffs a pull request against a
+  # report for its BASE commit and both branches are bases here: features
+  # target develop, the release targets main. Measuring only develop leaves the
+  # release pull request with nothing to subtract from, so it reports a bare
+  # figure and no delta on the one pull request whose subject is how far the
+  # release moves it.
   push:
-    branches: [develop]
+    branches: [develop, main]
 
 concurrency:
   group: coverage-${{ github.ref }}
-  cancel-in-progress: true
+  # A superseded pull request run is waste, but a superseded push to a
+  # long-lived branch takes the base upload with it, and Codecov then has
+  # nothing to diff the next pull request against.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   coverage:

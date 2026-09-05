@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/damson/skill-lint/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/damson/skill-lint/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/github/license/damson/skill-lint)](LICENSE)
-[![Coverage](https://codecov.io/gh/damson/skill-lint/branch/develop/graph/badge.svg)](https://codecov.io/gh/damson/skill-lint/branch/develop)
+[![Coverage](https://codecov.io/gh/damson/skill-lint/branch/main/graph/badge.svg)](https://codecov.io/gh/damson/skill-lint/branch/main)
 
 **A friendly structural linter for Claude Code skills.**
 
