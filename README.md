@@ -78,7 +78,7 @@ No cryptic exit codes: each finding says what's wrong and what to do about it:
 | Input | Default | Meaning |
 |---|---|---|
 | `path` | `skills` | Directory holding the skills to lint |
-| `harness-ref` | pinned commit | The exact linter version this action runs |
+| `harness-ref` | pinned commit | The exact linter version this action runs. A daily job compares it with the upstream's latest release and opens a pull request when it moves, having run this suite at the new pin first |
 
 No token, ever: the harness is public and the fetch is anonymous.
 
