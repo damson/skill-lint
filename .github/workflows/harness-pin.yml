@@ -1,0 +1,112 @@
+name: Harness pin
+
+# The pin is what makes this action trustworthy: consumers run the linter at a
+# commit somebody reviewed, and an upstream change cannot alter what their build
+# enforces. It is also what rots, because a stale pin behaves exactly like a
+# current one. This one sat three weeks and five upstream releases behind, and a
+# person found it rather than a check.
+#
+# So the comparison runs on a schedule and the decision does not: this opens a
+# pull request and stops. The upstream promotes to its default branch only when
+# it cuts a release, so one pull request here is one release there.
+#
+# The schedule is the trigger of last resort, and it is a poor one: the event
+# that should cause this work happens in another repository, and GitHub delays
+# and drops cron. `repository_dispatch` is here so the upstream can push the
+# event the moment it releases, once it holds a token that can reach this repo.
+
+permissions:
+  contents: write
+  pull-requests: write
+
+on:
+  schedule:
+    - cron: '23 7 * * *'   # daily, off the hour
+  workflow_dispatch:
+  repository_dispatch:
+    types: [harness-release]
+
+concurrency:
+  group: harness-pin
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Follow the upstream release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # A person's token, not GITHUB_TOKEN: a pull request GitHub attributes to
+      # Actions raises no `pull_request` runs, so it would arrive with none of
+      # the checks that are the entire reason to review a pin bump. The same
+      # token pushes, because a refresh is attributed to whoever pushed.
+      - name: Check the publishing token is present
+        env:
+          PIN_BUMP_TOKEN: ${{ secrets.PIN_BUMP_TOKEN }}
+        run: |
+          if [ -z "$PIN_BUMP_TOKEN" ]; then
+            echo "::error::PIN_BUMP_TOKEN is not set. This opens a pull request, and one opened by Actions never gets the checks that justify merging it. Create a fine-grained PAT scoped to this repository with Contents: read and write and Pull requests: read and write, then: gh secret set PIN_BUMP_TOKEN"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          token: ${{ secrets.PIN_BUMP_TOKEN }}
+
+      - name: Compare the pin with the upstream's latest release
+        id: bump
+        env:
+          GH_TOKEN: ${{ secrets.PIN_BUMP_TOKEN }}
+        run: ./bin/bump-harness-pin.sh
+
+      - name: Install bats
+        if: success() && steps.bump.outputs.changed == 'true'
+        run: sudo apt-get update -q && sudo apt-get install -y -q bats
+
+      # The bump is a proposal about what this action enforces, so it arrives
+      # having been run: the suite fetches the linter at the new pin and lints
+      # fixtures with it. A bump to a broken commit fails here rather than in
+      # somebody else's build.
+      - name: Run the suite at the new pin
+        if: success() && steps.bump.outputs.changed == 'true'
+        run: bats tests/
+
+      - name: Open or refresh the pull request
+        if: success() && steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PIN_BUMP_TOKEN }}
+          TAG: ${{ steps.bump.outputs.tag }}
+          CURRENT: ${{ steps.bump.outputs.current }}
+          LATEST: ${{ steps.bump.outputs.latest }}
+        run: |
+          set -euo pipefail
+          branch="chore/harness-pin-${TAG}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add action.yml
+          git commit -m "Pin the linter to the harness at ${TAG}
+
+          ${CURRENT} -> ${LATEST}
+
+          Opened by the harness-pin workflow. The suite ran at the new pin
+          before this was pushed: it fetches the linter at that commit and
+          lints the fixtures with it."
+          git push -u origin "$branch" --force
+          existing=$(gh pr list --base develop --head "$branch" --state open --json number --jq '.[0].number // empty')
+          body="The upstream cut \`${TAG}\`, so the linter this action runs moved.
+
+          \`harness-ref\`: \`${CURRENT}\` to \`${LATEST}\`.
+
+          The suite ran at the new pin before this was opened, which is the part
+          worth trusting: it fetches the linter at that commit and lints the
+          fixtures with it. What it cannot tell you is whether the new checks
+          are ones you want enforced on everyone consuming this action, so read
+          the upstream's release notes before merging."
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --body "$body"
+          else
+            gh pr create --base develop --head "$branch" \
+              --title "Pin the linter to the harness at ${TAG}" --body "$body"
+          fi
