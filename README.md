@@ -14,25 +14,33 @@ whether every skill is wired up to actually fire.
 ## Why you might want this
 
 Here's the sneaky thing about skills: a structurally broken one doesn't error;
-it just goes quiet. The wrong `name:` makes it unaddressable, an empty
-`description:` means it never triggers, and two skills sharing a leaf name
-silently shadow each other, because skills install **flat** into
-`~/.claude/skills/` and share one namespace. None of that is visible at install
-time, and all of it is confusing later, usually right when you're wondering
-why your carefully-written skill never seems to run.
+it just goes quiet. A `name:` that doesn't match its folder quietly changes the
+command you have to type. An empty `description:` hands your trigger to
+whatever the first line of the body happens to say. Two personal skills sharing
+a leaf name resolve by priority, and the loser simply isn't there. None of that
+is visible at install time, and all of it is confusing later, usually right
+when you're wondering why your carefully-written skill never seems to run.
 
 skill-lint checks the five invariants that catch it:
 
 | Check | Why it is not cosmetic |
 |---|---|
-| frontmatter `name:` matches the folder | A mismatch makes the skill unaddressable |
-| `description:` is non-empty | The description is the whole trigger: an empty one never fires |
+| frontmatter `name:` matches the folder | `name:` is optional and **overrides** the folder. A mismatch means the skill answers to a name the directory never shows you |
+| `description:` is non-empty | Omit it and Claude Code falls back to the first non-empty line of the body. The trigger doesn't vanish, it just stops being one anybody chose |
 | a `## Procedure` or `## Step N` section | Without steps it is an essay, not a skill |
 | a `## When to STOP` section | This is what stops a skill firing on work it should decline |
-| leaf names unique across groups | Skills install flat; a duplicate silently shadows another |
+| leaf names unique across groups | Personal and project skills share one flat namespace and resolve by priority, so the loser is simply absent. Plugin skills are namespaced `plugin:skill` and don't collide |
 
 Every problem is reported, not just the first: one run hands you the whole
 to-do list instead of a fix-rerun-fix loop. The job fails if any skill fails.
+
+None of these five stops a skill loading. That is the point: Claude Code is
+forgiving here, and every one of these defects leaves you with a skill that
+runs under a name you didn't choose, triggers on text you didn't write, or
+isn't the one that won. Those are harder to notice than a crash, which is why
+they're worth a linter. See the
+[skills documentation](https://code.claude.com/docs/en/skills) for the
+resolution rules.
 
 ## Get started in 30 seconds
 
