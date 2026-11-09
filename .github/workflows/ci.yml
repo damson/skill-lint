@@ -37,6 +37,8 @@ jobs:
           set -euo pipefail
           ref="$(awk '/harness-ref:/{f=1} f && /default:/{print $2; exit}' action.yml)"
           ./bin/fetch-harness.sh "$ref" "$RUNNER_TEMP/canary"
+      - name: Prove the README's sample failure is what the pinned linter prints
+        run: ./bin/check-readme-sample.sh "$RUNNER_TEMP/canary"
       - id: lint
         continue-on-error: true
         uses: ./

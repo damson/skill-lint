@@ -91,6 +91,54 @@ SH
   [ "$status" -eq 1 ]
 }
 
+# --- The README's sample failure --------------------------------------------
+# The README quotes the linter's wording, which upstream owns. A harness whose
+# linter prints known lines stands in for the real one.
+
+make_printing_harness() {
+  # A harness whose linter prints its arguments as $1 and exits $2.
+  mkdir -p "$TMP/harness/bin"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "%s"\nexit %s\n' "$1" "$2" \
+    > "$TMP/harness/bin/validate-skills.sh"
+  chmod +x "$TMP/harness/bin/validate-skills.sh"
+}
+
+make_readme() {
+  printf '# x\n\n## What a failure looks like\n\nIntro.\n\n```\n%s\n```\n\n## Inputs\n\n```\nnot the sample\n```\n' "$1" \
+    > "$TMP/README.md"
+}
+
+@test "readme sample: a sample matching the linter's output passes" {
+  make_printing_harness "⚠ a: wrong" 1
+  make_readme "⚠ a: wrong"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" "$TMP/harness"
+  [ "$status" -eq 0 ]
+}
+
+@test "readme sample: reworded linter output fails and shows the difference" {
+  make_printing_harness "⚠ a: reworded" 1
+  make_readme "⚠ a: wrong"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" "$TMP/harness"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not what the pinned linter prints"*"reworded"* ]]
+}
+
+@test "readme sample: a linter that passes the bad fixtures is an error" {
+  make_printing_harness "⚠ a: wrong" 0
+  make_readme "⚠ a: wrong"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" "$TMP/harness"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"passed tests/fixtures/bad"* ]]
+}
+
+@test "readme sample: a README with no sample is an error, not a match" {
+  make_printing_harness "" 1
+  printf '# x\n\n## Inputs\n' > "$TMP/README.md"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" "$TMP/harness"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"No sample failure found"* ]]
+}
+
 # --- Watching the upstream pin ----------------------------------------------
 # The pin is what makes this action trustworthy and what makes it rot: a stale
 # pin behaves exactly like a current one. These cover the comparison, not the
