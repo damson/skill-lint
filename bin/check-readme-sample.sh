@@ -28,12 +28,21 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 readme="${README:-README.md}"
 
 # The sample is the first fenced block under its heading, before the next one.
-expected=$(awk '
-    /^## What a failure looks like/ { f = 1; next }
-    f && /^## / { exit }
-    f && /^```/ { if (b) exit; b = 1; next }
-    b { print }
-' "$readme")
+# A function, so the substitution below stays on one line: kcov reports the
+# first line of a multi-line one as never run. The kcov-ignore markers keep
+# the awk source out of a report that measures bash.
+sample_of() {
+    awk '
+        # kcov-ignore-start
+        /^## What a failure looks like/ { f = 1; next }
+        f && /^## / { exit }
+        f && /^```/ { if (b) exit; b = 1; next }
+        b { print }
+    ' "$1"
+    # kcov-ignore-end
+}
+
+expected=$(sample_of "$readme")
 [ -n "$expected" ] || { echo "::error::No sample failure found in $readme"; exit 1; }
 
 # The bad fixtures exist to fail, so a zero exit is an error of its own.
@@ -76,6 +85,7 @@ out=$(mktemp)
 trap 'rm -f "$sample" "$out"' EXIT
 printf '%s\n' "$actual" > "$sample"
 awk -v sample="$sample" '
+    # kcov-ignore-start
     /^## What a failure looks like/ { f = 1 }
     f && !done && /^```/ {
         if (!b) { b = 1; print; while ((getline line < sample) > 0) print line; next }
@@ -84,5 +94,6 @@ awk -v sample="$sample" '
     b { next }
     { print }
 ' "$readme" > "$out"
+# kcov-ignore-end
 cat "$out" > "$readme"
 echo "Rewrote the sample failure in $readme from the pinned linter."
