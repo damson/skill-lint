@@ -76,7 +76,7 @@ git clone --depth 1 https://github.com/damson/agent-config-harness
 No cryptic exit codes: each finding says what's wrong and what to do about it:
 
 ```
-⚠ mismatched: frontmatter name is 'some-other-name' — it must match the folder name
+⚠ mismatched: frontmatter name is 'some-other-name', so the / menu shows that and not the folder
 ⚠ no-stop: no '## When to STOP' section
 ✗ 2 problem(s) across 2 skill(s) in tests/fixtures/bad
 ```

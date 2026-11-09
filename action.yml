@@ -17,7 +17,7 @@ inputs:
   harness-ref:
     description: Commit of damson/agent-config-harness to run the linter from. Pinned so a harness change cannot silently change what this action enforces.
     required: false
-    default: e83365d04c13084ad0de6a4c5a20e653c32e3491
+    default: 1d22056c49788a97f225d7b07674d5fecccc6191
 
 runs:
   using: composite
