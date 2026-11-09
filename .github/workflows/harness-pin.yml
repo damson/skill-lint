@@ -64,14 +64,28 @@ jobs:
         if: success() && steps.bump.outputs.changed == 'true'
         run: sudo apt-get update -q && sudo apt-get install -y -q bats
 
-      # The bump is a proposal about what this action enforces, so it arrives
-      # having been run: the suite fetches the linter at the new pin and lints
-      # fixtures with it. A bump to a broken commit fails here rather than in
-      # somebody else's build.
+      # The suite tests this repository's scripts against stand-ins; it does
+      # not run the upstream linter. The next step does.
       - name: Run the suite at the new pin
         if: success() && steps.bump.outputs.changed == 'true'
         run: bats tests/
 
+      # The bump is a proposal about what this action enforces, so it arrives
+      # having been run: the linter at the new pin lints the bad fixtures, and
+      # its output becomes the README's sample failure. A bump to a broken
+      # commit fails here, and one that rewords a finding arrives with the
+      # README already saying the new words, where the diff shows them.
+      - name: Rewrite the README's sample failure at the new pin
+        if: success() && steps.bump.outputs.changed == 'true'
+        env:
+          LATEST: ${{ steps.bump.outputs.latest }}
+        run: |
+          set -euo pipefail
+          ./bin/fetch-harness.sh "$LATEST" "$RUNNER_TEMP/harness"
+          ./bin/check-readme-sample.sh --write "$RUNNER_TEMP/harness"
+
+      # A branch that already exists is left alone: it is this same release's
+      # bump, and anything pushed onto it since is a person's fix to it.
       - name: Open or refresh the pull request
         if: success() && steps.bump.outputs.changed == 'true'
         env:
@@ -82,28 +96,33 @@ jobs:
         run: |
           set -euo pipefail
           branch="chore/harness-pin-${TAG}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
-          git add action.yml
-          git commit -m "Pin the linter to the harness at ${TAG}
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "$branch already exists; leaving its commits alone."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git checkout -b "$branch"
+            git add action.yml README.md
+            git commit -m "Pin the linter to the harness at ${TAG}
 
           ${CURRENT} -> ${LATEST}
 
-          Opened by the harness-pin workflow. The suite ran at the new pin
-          before this was pushed: it fetches the linter at that commit and
-          lints the fixtures with it."
-          git push -u origin "$branch" --force
+          Opened by the harness-pin workflow. The linter at the new pin linted
+          the bad fixtures before this was pushed, and its output is the
+          README's sample failure."
+            git push -u origin "$branch"
+          fi
           existing=$(gh pr list --base develop --head "$branch" --state open --json number --jq '.[0].number // empty')
           body="The upstream cut \`${TAG}\`, so the linter this action runs moved.
 
           \`harness-ref\`: \`${CURRENT}\` to \`${LATEST}\`.
 
-          The suite ran at the new pin before this was opened, which is the part
-          worth trusting: it fetches the linter at that commit and lints the
-          fixtures with it. What it cannot tell you is whether the new checks
-          are ones you want enforced on everyone consuming this action, so read
-          the upstream's release notes before merging."
+          The linter at the new pin linted the bad fixtures before this was
+          opened, and the README's sample failure is its output: a change there
+          is the upstream rewording a finding. What this cannot tell you is
+          whether the new checks are ones you want enforced on everyone
+          consuming this action, or whether the README's prose still describes
+          them, so read the upstream's release notes before merging."
           if [ -n "$existing" ]; then
             gh pr edit "$existing" --body "$body"
           else
