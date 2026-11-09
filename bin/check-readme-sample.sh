@@ -50,6 +50,13 @@ if [ "$WRITE" -eq 0 ]; then
     exit 1
 fi
 
+# A fence inside the output would end the block early and turn the rest of it
+# into README markup, so output carrying one is never written.
+if printf '%s\n' "$actual" | grep -q '^```'; then
+    echo "::error::The linter's output contains a code fence; not writing it into $readme"
+    exit 1
+fi
+
 # Through a temp file and `mv`, because `sed -i` differs between BSD and GNU.
 sample=$(mktemp)
 out=$(mktemp)

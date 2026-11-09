@@ -171,6 +171,22 @@ make_readme() {
   [ "$status" -eq 0 ]
 }
 
+@test "readme sample: --write refuses output carrying a code fence" {
+  mkdir -p "$TMP/harness/bin"
+  cat > "$TMP/harness/bin/validate-skills.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '⚠ a: wrong' '```' '# injected heading' >&2
+exit 1
+SH
+  chmod +x "$TMP/harness/bin/validate-skills.sh"
+  make_readme "$SAMPLE"
+  cp "$TMP/README.md" "$TMP/want.md"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" --write "$TMP/harness"
+  [ "$status" -eq 1 ]
+  cmp -s "$TMP/want.md" "$TMP/README.md"
+  [[ "$output" == *"contains a code fence"* ]]
+}
+
 @test "readme sample: --write leaves a matching README byte for byte" {
   make_printing_harness "$SAMPLE" 1
   make_readme "$SAMPLE"
