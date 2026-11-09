@@ -187,6 +187,34 @@ SH
   [[ "$output" == *"contains a code fence"* ]]
 }
 
+@test "readme sample: --write leaves a dropped finding for a person, exit 2" {
+  make_printing_harness "✗ 0 problem(s)" 1
+  make_readme "$SAMPLE"
+  cp "$TMP/README.md" "$TMP/want.md"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" --write "$TMP/harness"
+  [ "$status" -eq 2 ]
+  cmp -s "$TMP/want.md" "$TMP/README.md"
+  [[ "$output" == *"findings changed, not only their wording"* ]]
+}
+
+@test "readme sample: --write leaves a renamed finding for a person, exit 2" {
+  make_printing_harness $'⚠ b: wrong\n✗ 1 problem(s)' 1
+  make_readme "$SAMPLE"
+  cp "$TMP/README.md" "$TMP/want.md"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" --write "$TMP/harness"
+  [ "$status" -eq 2 ]
+  cmp -s "$TMP/want.md" "$TMP/README.md"
+}
+
+@test "readme sample: --write keeps the README's file mode" {
+  make_printing_harness "$REWORDED" 1
+  make_readme "$SAMPLE"
+  chmod 0644 "$TMP/README.md"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" --write "$TMP/harness"
+  [ "$status" -eq 0 ]
+  [ "$(ls -l "$TMP/README.md" | cut -c1-10)" = "-rw-r--r--" ]
+}
+
 @test "readme sample: --write leaves a matching README byte for byte" {
   make_printing_harness "$SAMPLE" 1
   make_readme "$SAMPLE"
@@ -288,8 +316,9 @@ EOF
   # raises no checks, and a pin bump with no checks is the one change nobody
   # can review. A workflow that pushes on every run turns a quiet no-op into a
   # daily empty pull request. A force-push erases a person's fix to the bump
-  # on the next run. And a bump that leaves the README sample behind fails
-  # its own pull request.
+  # on the next run. A bump that leaves the README sample behind fails its
+  # own pull request. And a bump that changes a finding has to open anyway,
+  # or nobody is asked to describe it.
   local wf="$REPO_ROOT/.github/workflows/harness-pin.yml"
   run python3 -c "
 import sys, yaml
@@ -306,6 +335,9 @@ if '--force' in str(opener.get('run', '')):
     bad.append('the PR branch is force-pushed over whatever a person added to it')
 if 'README.md' not in str(opener.get('run', '')):
     bad.append('the rewritten README sample is not committed')
+rewrite = named['Rewrite the README\x27s sample failure at the new pin']
+if '-eq 2' not in str(rewrite.get('run', '')):
+    bad.append('a changed finding stops the bump instead of opening it for a person')
 for n in ('Run the suite at the new pin', 'Rewrite the README\x27s sample failure at the new pin', 'Open or refresh the pull request'):
     cond = str(named[n].get('if', ''))
     if 'changed' not in cond or 'success()' not in cond:

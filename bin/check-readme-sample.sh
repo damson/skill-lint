@@ -10,6 +10,10 @@
 #   ./bin/check-readme-sample.sh <harness-dir>          # fail on a difference
 #   ./bin/check-readme-sample.sh --write <harness-dir>  # rewrite the sample
 #
+# --write rewrites a reworded sample only. A finding added, dropped or
+# renamed upstream is a change to what this action enforces, which a person
+# describes: --write leaves the README alone and exits 2.
+#
 # Env:
 #   README  the file holding the sample (default README.md beside this repo)
 
@@ -57,9 +61,19 @@ if printf '%s\n' "$actual" | grep -q '^```'; then
     exit 1
 fi
 
-# Through a temp file and `mv`, because `sed -i` differs between BSD and GNU.
+# A finding is what precedes a line's first colon (`⚠ mismatched`); the
+# summary line has none, so its whole text is its key.
+if [ "$(printf '%s\n' "$expected" | cut -d: -f1)" != "$(printf '%s\n' "$actual" | cut -d: -f1)" ]; then
+    echo "::error::The linter's findings changed, not only their wording; update the sample in $readme by hand"
+    diff <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") || true
+    exit 2
+fi
+
+# Through temp files, because `sed -i` differs between BSD and GNU, and
+# copied back rather than moved, so the README keeps its own mode.
 sample=$(mktemp)
 out=$(mktemp)
+trap 'rm -f "$sample" "$out"' EXIT
 printf '%s\n' "$actual" > "$sample"
 awk -v sample="$sample" '
     /^## What a failure looks like/ { f = 1 }
@@ -70,6 +84,5 @@ awk -v sample="$sample" '
     b { next }
     { print }
 ' "$readme" > "$out"
-mv "$out" "$readme"
-rm -f "$sample"
+cat "$out" > "$readme"
 echo "Rewrote the sample failure in $readme from the pinned linter."

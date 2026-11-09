@@ -74,7 +74,10 @@ jobs:
       # having been run: the linter at the new pin lints the bad fixtures, and
       # its output becomes the README's sample failure. A bump to a broken
       # commit fails here, and one that rewords a finding arrives with the
-      # README already saying the new words, where the diff shows them.
+      # README already saying the new words, where the diff shows them. One
+      # that adds or drops a finding (exit 2) still opens, with the README
+      # untouched, so its own README check is red until a person describes
+      # the change on the branch.
       - name: Rewrite the README's sample failure at the new pin
         if: success() && steps.bump.outputs.changed == 'true'
         env:
@@ -82,7 +85,13 @@ jobs:
         run: |
           set -euo pipefail
           ./bin/fetch-harness.sh "$LATEST" "$RUNNER_TEMP/harness"
-          ./bin/check-readme-sample.sh --write "$RUNNER_TEMP/harness"
+          status=0
+          ./bin/check-readme-sample.sh --write "$RUNNER_TEMP/harness" || status=$?
+          if [ "$status" -eq 2 ]; then
+            echo "::warning::The linter's findings changed; the bump opens with the README sample for a person to update."
+          elif [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi
 
       # A branch that already exists is left alone: it is this same release's
       # bump, and anything pushed onto it since is a person's fix to it.
