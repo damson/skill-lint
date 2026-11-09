@@ -28,21 +28,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 readme="${README:-README.md}"
 
 # The sample is the first fenced block under its heading, before the next one.
-# A function, so the substitution below stays on one line: kcov reports the
-# first line of a multi-line one as never run. The kcov-ignore markers keep
-# the awk source out of a report that measures bash.
-sample_of() {
-    awk '
-        # kcov-ignore-start
-        /^## What a failure looks like/ { f = 1; next }
-        f && /^## / { exit }
-        f && /^```/ { if (b) exit; b = 1; next }
-        b { print }
-    ' "$1"
-    # kcov-ignore-end
-}
-
-expected=$(sample_of "$readme")
+# One line, however wide: kcov never counts a multi-line substitution's first
+# line as run, nor anything a function runs inside one.
+expected=$(awk '/^## What a failure looks like/ { f = 1; next } f && /^## / { exit } f && /^```/ { if (b) exit; b = 1; next } b { print }' "$readme")
 [ -n "$expected" ] || { echo "::error::No sample failure found in $readme"; exit 1; }
 
 # The bad fixtures exist to fail, so a zero exit is an error of its own.
