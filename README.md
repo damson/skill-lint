@@ -14,9 +14,9 @@ whether every skill is wired up to actually fire.
 ## Why you might want this
 
 Here's the sneaky thing about skills: a structurally broken one doesn't error;
-it just goes quiet. A `name:` that doesn't match its folder quietly changes the
-command you have to type. An empty `description:` hands your trigger to
-whatever the first line of the body happens to say. Two personal skills sharing
+it just goes quiet. A `name:` that doesn't match its folder lists the skill in
+the `/` menu under a name its directory never shows. A missing `description:`
+hands your trigger to whatever the first line of the body happens to say. Two personal skills sharing
 a leaf name resolve by priority, and the loser simply isn't there. None of that
 is visible at install time, and all of it is confusing later, usually right
 when you're wondering why your carefully-written skill never seems to run.
@@ -25,7 +25,7 @@ skill-lint checks the five invariants that catch it:
 
 | Check | Why it is not cosmetic |
 |---|---|
-| frontmatter `name:` matches the folder | `name:` is optional and **overrides** the folder. A mismatch means the skill answers to a name the directory never shows you |
+| frontmatter `name:` matches the folder | `name:` is optional and sets the command the `/` menu shows, while the folder name still invokes the skill too. A mismatch lists the skill under a name its directory never shows you, and that name can lose to a command already holding it |
 | `description:` is non-empty | Omit it and Claude Code falls back to the first non-empty line of the body. The trigger doesn't vanish, it just stops being one anybody chose |
 | a `## Procedure` or `## Step N` section | Without steps it is an essay, not a skill |
 | a `## When to STOP` section | This is what stops a skill firing on work it should decline |
