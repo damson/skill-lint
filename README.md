@@ -14,18 +14,19 @@ whether every skill is wired up to actually fire.
 ## Why you might want this
 
 Here's the sneaky thing about skills: a structurally broken one doesn't error;
-it just goes quiet. A `name:` that doesn't match its folder quietly changes the
-command you have to type. An empty `description:` hands your trigger to
-whatever the first line of the body happens to say. Two personal skills sharing
-a leaf name resolve by priority, and the loser simply isn't there. None of that
-is visible at install time, and all of it is confusing later, usually right
-when you're wondering why your carefully-written skill never seems to run.
+it just goes quiet. A `name:` that doesn't match its folder lists the skill in
+the `/` menu under a name its directory never shows. A missing `description:`
+hands your trigger to whatever the first line of the body happens to say. Two
+personal or project skills sharing a leaf name resolve by priority, and the
+loser simply isn't there. None of that is visible at install time, and all of
+it is confusing later, usually right when you're wondering why your
+carefully-written skill never seems to run.
 
 skill-lint checks the five invariants that catch it:
 
 | Check | Why it is not cosmetic |
 |---|---|
-| frontmatter `name:` matches the folder | `name:` is optional and **overrides** the folder. A mismatch means the skill answers to a name the directory never shows you |
+| frontmatter `name:` matches the folder | `name:` is optional and sets the command the `/` menu shows, while the folder name still invokes the skill too. A mismatch lists the skill under a name its directory never shows you, and that name can lose to a command already holding it |
 | `description:` is non-empty | Omit it and Claude Code falls back to the first non-empty line of the body. The trigger doesn't vanish, it just stops being one anybody chose |
 | a `## Procedure` or `## Step N` section | Without steps it is an essay, not a skill |
 | a `## When to STOP` section | This is what stops a skill firing on work it should decline |
@@ -36,9 +37,8 @@ to-do list instead of a fix-rerun-fix loop. The job fails if any skill fails.
 
 None of these five stops a skill loading. That is the point: Claude Code is
 forgiving here, and every one of these defects leaves you with a skill that
-runs under a name you didn't choose, triggers on text you didn't write, or
-isn't the one that won. Those are harder to notice than a crash, which is why
-they're worth a linter. See the
+works and is not the skill you wrote. Those are harder to notice than a
+crash, which is why they're worth a linter. See the
 [skills documentation](https://code.claude.com/docs/en/skills) for the
 resolution rules.
 
@@ -86,7 +86,7 @@ No cryptic exit codes: each finding says what's wrong and what to do about it:
 | Input | Default | Meaning |
 |---|---|---|
 | `path` | `skills` | Directory holding the skills to lint |
-| `harness-ref` | pinned commit | The exact linter version this action runs. A daily job compares it with the upstream's latest release and opens a pull request when it moves, having run this suite at the new pin first |
+| `harness-ref` | pinned commit | The exact linter version this action runs. A daily job compares it with the upstream's latest release and opens a pull request when it moves, having run the linter at the new pin on the bad fixtures first and rewritten the sample failure above from its output |
 
 No token, ever: the harness is public and the fetch is anonymous.
 

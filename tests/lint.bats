@@ -91,6 +91,140 @@ SH
   [ "$status" -eq 1 ]
 }
 
+# --- The README's sample failure --------------------------------------------
+# The README quotes the linter's wording, which upstream owns. A harness whose
+# linter prints known lines stands in for the real one, on stderr as the real
+# one does, and over two lines so a sample is never only its first.
+
+SAMPLE=$'⚠ a: wrong\n✗ 1 problem(s)'
+REWORDED=$'⚠ a: reworded\n✗ 1 problem(s)'
+
+make_printing_harness() {
+  # A harness whose linter prints $1 to stderr and exits $2.
+  mkdir -p "$TMP/harness/bin"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "%s" >&2\nexit %s\n' "$1" "$2" \
+    > "$TMP/harness/bin/validate-skills.sh"
+  chmod +x "$TMP/harness/bin/validate-skills.sh"
+}
+
+make_readme() {
+  printf '# x\n\n## What a failure looks like\n\nIntro.\n\n```\n%s\n```\n\n## Inputs\n\n```\nnot the sample\n```\n' "$1" \
+    > "$TMP/README.md"
+}
+
+@test "readme sample: a sample matching the linter's output passes" {
+  make_printing_harness "$SAMPLE" 1
+  make_readme "$SAMPLE"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" "$TMP/harness"
+  [ "$status" -eq 0 ]
+}
+
+@test "readme sample: a relative harness path resolves from where it was given" {
+  make_printing_harness "$SAMPLE" 1
+  make_readme "$SAMPLE"
+  cd "$TMP"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" harness
+  [ "$status" -eq 0 ]
+}
+
+@test "readme sample: reworded linter output fails and shows the difference" {
+  make_printing_harness "$REWORDED" 1
+  make_readme "$SAMPLE"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" "$TMP/harness"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not what the pinned linter prints"*"reworded"* ]]
+}
+
+@test "readme sample: a linter that passes the bad fixtures is an error" {
+  make_printing_harness "$SAMPLE" 0
+  make_readme "$SAMPLE"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" "$TMP/harness"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"passed tests/fixtures/bad"* ]]
+}
+
+@test "readme sample: a README with no sample is an error, not a match" {
+  make_printing_harness "$SAMPLE" 1
+  printf '# x\n\n## Inputs\n' > "$TMP/README.md"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" "$TMP/harness"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"No sample failure found"* ]]
+}
+
+@test "readme sample: output quoted under a later heading is not the sample" {
+  make_printing_harness "$SAMPLE" 1
+  printf '# x\n\n## What a failure looks like\n\nNo block.\n\n## Inputs\n\n```\n%s\n```\n' "$SAMPLE" \
+    > "$TMP/README.md"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" "$TMP/harness"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"No sample failure found"* ]]
+}
+
+@test "readme sample: --write puts the linter's output in the sample and nowhere else" {
+  make_printing_harness "$REWORDED" 1
+  make_readme "$REWORDED"
+  cp "$TMP/README.md" "$TMP/want.md"
+  make_readme "$SAMPLE"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" --write "$TMP/harness"
+  [ "$status" -eq 0 ]
+  run diff "$TMP/want.md" "$TMP/README.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "readme sample: --write refuses output carrying a code fence" {
+  mkdir -p "$TMP/harness/bin"
+  cat > "$TMP/harness/bin/validate-skills.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '⚠ a: wrong' '```' '# injected heading' >&2
+exit 1
+SH
+  chmod +x "$TMP/harness/bin/validate-skills.sh"
+  make_readme "$SAMPLE"
+  cp "$TMP/README.md" "$TMP/want.md"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" --write "$TMP/harness"
+  [ "$status" -eq 1 ]
+  cmp -s "$TMP/want.md" "$TMP/README.md"
+  [[ "$output" == *"contains a code fence"* ]]
+}
+
+@test "readme sample: --write leaves a dropped finding for a person, exit 2" {
+  make_printing_harness "✗ 0 problem(s)" 1
+  make_readme "$SAMPLE"
+  cp "$TMP/README.md" "$TMP/want.md"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" --write "$TMP/harness"
+  [ "$status" -eq 2 ]
+  cmp -s "$TMP/want.md" "$TMP/README.md"
+  [[ "$output" == *"findings changed, not only their wording"* ]]
+}
+
+@test "readme sample: --write leaves a renamed finding for a person, exit 2" {
+  make_printing_harness $'⚠ b: wrong\n✗ 1 problem(s)' 1
+  make_readme "$SAMPLE"
+  cp "$TMP/README.md" "$TMP/want.md"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" --write "$TMP/harness"
+  [ "$status" -eq 2 ]
+  cmp -s "$TMP/want.md" "$TMP/README.md"
+}
+
+@test "readme sample: --write keeps the README's file mode" {
+  make_printing_harness "$REWORDED" 1
+  make_readme "$SAMPLE"
+  chmod 0644 "$TMP/README.md"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" --write "$TMP/harness"
+  [ "$status" -eq 0 ]
+  [ "$(ls -l "$TMP/README.md" | cut -c1-10)" = "-rw-r--r--" ]
+}
+
+@test "readme sample: --write leaves a matching README byte for byte" {
+  make_printing_harness "$SAMPLE" 1
+  make_readme "$SAMPLE"
+  cp "$TMP/README.md" "$TMP/want.md"
+  README="$TMP/README.md" run "$REPO_ROOT/bin/check-readme-sample.sh" --write "$TMP/harness"
+  [ "$status" -eq 0 ]
+  run cmp "$TMP/want.md" "$TMP/README.md"
+  [ "$status" -eq 0 ]
+}
+
 # --- Watching the upstream pin ----------------------------------------------
 # The pin is what makes this action trustworthy and what makes it rot: a stale
 # pin behaves exactly like a current one. These cover the comparison, not the
@@ -178,10 +312,13 @@ EOF
 }
 
 @test "bump workflow: the pull request is opened by a person and gated on a real change" {
-  # Two failures this pins. A pull request GitHub attributes to Actions raises
-  # no checks, and a pin bump with no checks is the one change nobody can
-  # review. And a workflow that pushes on every run turns a quiet no-op into a
-  # daily empty pull request.
+  # Four failures this pins. A pull request GitHub attributes to Actions
+  # raises no checks, and a pin bump with no checks is the one change nobody
+  # can review. A workflow that pushes on every run turns a quiet no-op into a
+  # daily empty pull request. A force-push erases a person's fix to the bump
+  # on the next run. A bump that leaves the README sample behind fails its
+  # own pull request. And a bump that changes a finding has to open anyway,
+  # or nobody is asked to describe it.
   local wf="$REPO_ROOT/.github/workflows/harness-pin.yml"
   run python3 -c "
 import sys, yaml
@@ -194,7 +331,14 @@ if 'PIN_BUMP_TOKEN' not in str(checkout.get('with', {})):
 opener = named['Open or refresh the pull request']
 if 'PIN_BUMP_TOKEN' not in str(opener.get('env', {})):
     bad.append('the PR is opened with the default token')
-for n in ('Run the suite at the new pin', 'Open or refresh the pull request'):
+if '--force' in str(opener.get('run', '')):
+    bad.append('the PR branch is force-pushed over whatever a person added to it')
+if 'README.md' not in str(opener.get('run', '')):
+    bad.append('the rewritten README sample is not committed')
+rewrite = named['Rewrite the README\x27s sample failure at the new pin']
+if '-eq 2' not in str(rewrite.get('run', '')):
+    bad.append('a changed finding stops the bump instead of opening it for a person')
+for n in ('Run the suite at the new pin', 'Rewrite the README\x27s sample failure at the new pin', 'Open or refresh the pull request'):
     cond = str(named[n].get('if', ''))
     if 'changed' not in cond or 'success()' not in cond:
         bad.append(n + ' is not gated on success() and a real change')

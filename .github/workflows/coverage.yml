@@ -51,10 +51,17 @@ jobs:
       - name: Run the suite under kcov
         run: |
           set -euo pipefail
+          # kcov counts every line of a multi-line literal as a bash statement
+          # that never ran, so an embedded awk program reads as uncovered
+          # however often the suite runs it. Its source sits between
+          # kcov-ignore-start and kcov-ignore-end; wrap only foreign source
+          # there, because a bash statement inside a region stops being
+          # measured at all.
           "$HOME/.local/kcov/bin/kcov" \
                --include-path="$PWD/bin" \
                --bash-parse-files-in-dir="$PWD/bin" \
                --exclude-pattern=/tests/ \
+               --exclude-region=kcov-ignore-start:kcov-ignore-end \
                coverage-out "$(command -v bats)" tests/
           xml="coverage-out/kcov-merged/cobertura.xml"
           if [ ! -f "$xml" ]; then

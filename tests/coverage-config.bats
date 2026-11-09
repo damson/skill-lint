@@ -63,3 +63,24 @@ push_branches() {
   [ -n "$value" ]
   printf '%s' "$value" | grep -q "github.event_name == 'pull_request'"
 }
+
+@test "coverage workflow: kcov leaves out the regions bin/ marks" {
+  # Without the flag the markers are inert comments, and every embedded awk
+  # program reads as bash that never ran, a number no test can move.
+  grep -q -- '--exclude-region=kcov-ignore-start:kcov-ignore-end' \
+    "$REPO_ROOT/.github/workflows/coverage.yml"
+}
+
+@test "coverage markers: every region in bin/ opens before it closes, once" {
+  # An unclosed start takes the rest of its file out of the report, and a
+  # stray end does nothing, so both read as coverage that was never there.
+  local f bad=""
+  for f in "$REPO_ROOT"/bin/*.sh; do
+    awk '
+      /kcov-ignore-start/ { if (open) bad = 1; open = 1 }
+      /kcov-ignore-end/   { if (!open) bad = 1; open = 0 }
+      END { exit (bad || open) ? 1 : 0 }
+    ' "$f" || bad="$bad $(basename "$f")"
+  done
+  [ -z "$bad" ]
+}
