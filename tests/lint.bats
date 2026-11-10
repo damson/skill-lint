@@ -422,6 +422,11 @@ for need in ('success()', 'changed == \x27true\x27', 'same_major == \x27true\x27
         bad.append('auto-merge is not gated on ' + need)
 if 'required_status_checks' not in str(auto.get('run', '')) or '--auto' not in str(auto.get('run', '')):
     bad.append('auto-merge does not wait for required checks, or does not check main requires any')
+for step, label in ((auto, 'auto-merge'), (opener, 'the PR lookup')):
+    if 'isCrossRepository == false' not in str(step.get('run', '')):
+        bad.append(label + ' can pick up a fork pull request with the same branch name')
+if '--match-head-commit' not in str(auto.get('run', '')):
+    bad.append('auto-merge is not bound to the commit the bump branch holds')
 if '-eq 2' not in str(rewrite.get('run', '')):
     bad.append('a changed finding stops the bump instead of opening it for a person')
 for n in ('Run the suite at the new pin', 'Rewrite the README\x27s sample failure at the new pin', 'Open or refresh the pull request'):

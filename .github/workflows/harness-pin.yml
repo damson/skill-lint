@@ -130,7 +130,9 @@ jobs:
           README's sample failure."
             git push -u origin "$branch"
           fi
-          existing=$(gh pr list --base main --head "$branch" --state open --json number --jq '.[0].number // empty')
+          # --head matches a branch name in any fork too; only this repo's own
+          # branch is the bump.
+          existing=$(gh pr list --base main --head "$branch" --state open --json number,isCrossRepository --jq '[.[] | select(.isCrossRepository == false)][0].number // empty')
           body="The upstream cut \`${TAG}\`, so the linter this action runs moved.
 
           \`harness-ref\`: \`${CURRENT}\` to \`${LATEST}\`.
@@ -163,7 +165,9 @@ jobs:
 
       # Auto-merge waits only for the checks main requires. With none required
       # it would merge at once, before CI had run, so that case is left for a
-      # person rather than trusted.
+      # person rather than trusted. The pull request is the one from this
+      # repo's own bump branch, never a fork's of the same name, and the merge
+      # is bound to the commit that branch holds now.
       - name: Let a regular bump merge itself once CI passes
         if: success() && steps.bump.outputs.changed == 'true' && steps.bump.outputs.same_major == 'true' && steps.readme.outputs.findings_unchanged == 'true'
         env:
@@ -176,6 +180,9 @@ jobs:
             echo "::warning::main requires no status checks, so auto-merge would not wait for CI. This bump waits for a person."
             exit 0
           fi
-          pr=$(gh pr list --base main --head "chore/harness-pin-${TAG}" --state open --json number --jq '.[0].number // empty')
-          [ -n "$pr" ] || { echo "::error::No open pull request for chore/harness-pin-${TAG}"; exit 1; }
-          gh pr merge "$pr" --auto --squash
+          branch="chore/harness-pin-${TAG}"
+          head=$(git ls-remote origin "refs/heads/${branch}" | cut -f1)
+          printf '%s' "$head" | grep -qE '^[0-9a-f]{40}$' || { echo "::error::No commit found on ${branch}"; exit 1; }
+          pr=$(gh pr list --base main --head "$branch" --state open --json number,isCrossRepository,headRefOid --jq "[.[] | select(.isCrossRepository == false and .headRefOid == \"${head}\")][0].number // empty")
+          [ -n "$pr" ] || { echo "::error::No open pull request from this repo's ${branch} at ${head}"; exit 1; }
+          gh pr merge "$pr" --auto --squash --match-head-commit "$head"
