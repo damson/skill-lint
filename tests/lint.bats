@@ -311,6 +311,35 @@ EOF
   [ "$status" -ne 0 ]
 }
 
+@test "bump: a release whose tag resolves to no commit is an error" {
+  # The release lookup answers and the commit lookup does not: a tag deleted
+  # or not yet replicated. Pinning nothing is the only safe outcome.
+  make_action_file "1111111111111111111111111111111111111111"
+  mkdir -p "$TMP/bin"
+  printf '#!/usr/bin/env bash\ncase "$*" in *releases/latest*) echo v9.9.9 ;; *) exit 1 ;; esac\n' \
+    > "$TMP/bin/gh"
+  chmod +x "$TMP/bin/gh"
+  run env PATH="$TMP/bin:$PATH" ACTION_FILE="$TMP/action.yml" \
+    "$REPO_ROOT/bin/bump-harness-pin.sh"
+  [ "$status" -eq 1 ]
+  grep -q "default: 1111111111111111111111111111111111111111" "$TMP/action.yml"
+  [[ "$output" == *"Could not resolve v9.9.9 to a commit"* ]]
+}
+
+@test "bump: a rewrite that did not take is reported, not announced" {
+  # A sed whose pattern matches nothing exits 0 and leaves the old pin, so
+  # the script checks the file rather than sed's status. A stand-in that
+  # copies its input unchanged is that sed.
+  make_action_file "1111111111111111111111111111111111111111"
+  make_gh "v9.9.9" "2222222222222222222222222222222222222222"
+  printf '#!/usr/bin/env bash\ncat "$2"\n' > "$TMP/bin/sed"
+  chmod +x "$TMP/bin/sed"
+  run env PATH="$TMP/bin:$PATH" ACTION_FILE="$TMP/action.yml" \
+    "$REPO_ROOT/bin/bump-harness-pin.sh"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"did not take"* ]]
+}
+
 @test "bump workflow: the pull request is opened by a person and gated on a real change" {
   # Four failures this pins. A pull request GitHub attributes to Actions
   # raises no checks, and a pin bump with no checks is the one change nobody
