@@ -238,18 +238,21 @@ make_action_file() {
 # A `gh` that answers the two calls the script makes: the latest release's tag,
 # and the commit that tag names.
 make_gh() {
-  # $3, when given, is the tag the current pin sits on; without it the tags
-  # lookup fails, as it does for an upstream that cannot be read.
-  local tag="$1" sha="$2" current_tag="${3:-}"
-  local tags_answer="exit 1"
-  [ -n "$current_tag" ] && tags_answer="printf '%s\\n' '$current_tag'"
+  # $3, when given, is the upstream's tags listing as the API returns it; the
+  # stub applies the script's own --jq filter to it with the real jq, so the
+  # selection is exercised and not assumed. Without it the lookup fails, as it
+  # does for an upstream that cannot be read.
+  local tag="$1" sha="$2"
+  [ -n "${3:-}" ] && printf '%s' "$3" > "$TMP/tags.json"
   mkdir -p "$TMP/bin"
   cat > "$TMP/bin/gh" <<EOF
 #!/usr/bin/env bash
+filter=""; prev=""
+for a in "\$@"; do [ "\$prev" = "--jq" ] && filter="\$a"; prev="\$a"; done
 case "\$*" in
   *releases/latest*) printf '%s\n' "$tag" ;;
   *commits/*)        printf '%s\n' "$sha" ;;
-  *repos/*/tags*)    $tags_answer ;;
+  *repos/*/tags*)    [ -f "$TMP/tags.json" ] || exit 1; jq -r "\$filter" "$TMP/tags.json" ;;
   *)                 exit 1 ;;
 esac
 EOF
@@ -283,7 +286,10 @@ EOF
 
 @test "bump: a move inside one major version is reported as such" {
   make_action_file "1111111111111111111111111111111111111111"
-  make_gh "v1.8.0" "2222222222222222222222222222222222222222" "v1.7.1"
+  # The floating v1 and another commit's v2.0.0 sit beside the pin's own
+  # v1.7.1; only the full tag on the pinned commit decides.
+  make_gh "v1.8.0" "2222222222222222222222222222222222222222" \
+    '[{"name":"v2.0.0","commit":{"sha":"3333333333333333333333333333333333333333"}},{"name":"v1","commit":{"sha":"1111111111111111111111111111111111111111"}},{"name":"v1.7.1","commit":{"sha":"1111111111111111111111111111111111111111"}}]'
   run env PATH="$TMP/bin:$PATH" ACTION_FILE="$TMP/action.yml" GITHUB_OUTPUT="$TMP/out" \
     "$REPO_ROOT/bin/bump-harness-pin.sh"
   [ "$status" -eq 0 ]
@@ -292,16 +298,18 @@ EOF
 
 @test "bump: a new major version is not a regular bump" {
   make_action_file "1111111111111111111111111111111111111111"
-  make_gh "v2.0.0" "2222222222222222222222222222222222222222" "v1.7.1"
+  make_gh "v2.0.0" "2222222222222222222222222222222222222222" '[{"name":"v1.7.1","commit":{"sha":"1111111111111111111111111111111111111111"}}]'
   run env PATH="$TMP/bin:$PATH" ACTION_FILE="$TMP/action.yml" GITHUB_OUTPUT="$TMP/out" \
     "$REPO_ROOT/bin/bump-harness-pin.sh"
   [ "$status" -eq 0 ]
   grep -qx "same_major=false" "$TMP/out"
 }
 
-@test "bump: tags without a version number are never the same major" {
+@test "bump: a pin on only a floating or pre-release tag is not the same major" {
+  # v1 and v1.8.0-rc.1 carry a major number without being a release; a pin
+  # that sits on nothing else is an unknown, which a person reviews.
   make_action_file "1111111111111111111111111111111111111111"
-  make_gh "nightly" "2222222222222222222222222222222222222222" "nightly-old"
+  make_gh "v1.8.0" "2222222222222222222222222222222222222222" '[{"name":"v1","commit":{"sha":"1111111111111111111111111111111111111111"}},{"name":"v1.8.0-rc.1","commit":{"sha":"1111111111111111111111111111111111111111"}}]'
   run env PATH="$TMP/bin:$PATH" ACTION_FILE="$TMP/action.yml" GITHUB_OUTPUT="$TMP/out" \
     "$REPO_ROOT/bin/bump-harness-pin.sh"
   [ "$status" -eq 0 ]
@@ -391,7 +399,8 @@ EOF
   # daily empty pull request. A force-push erases a person's fix to the bump
   # on the next run. A bump that leaves the README sample behind fails its
   # own pull request. And a bump that changes a finding has to open anyway,
-  # or nobody is asked to describe it.
+  # or nobody is asked to describe it. What the open and auto-merge steps do
+  # is tested by running them, below.
   local wf="$REPO_ROOT/.github/workflows/harness-pin.yml"
   run python3 -c "
 import sys, yaml
@@ -403,13 +412,16 @@ if 'PIN_BUMP_TOKEN' not in str(checkout.get('with', {})):
     bad.append('checkout pushes with the default token')
 if checkout.get('with', {}).get('ref') != 'main':
     bad.append('the bump is cut from a branch other than the trunk')
-opener = named['Open or refresh the pull request']
+opener = named['Open the pull request']
 if 'PIN_BUMP_TOKEN' not in str(opener.get('env', {})):
     bad.append('the PR is opened with the default token')
 if '--force' in str(opener.get('run', '')):
     bad.append('the PR branch is force-pushed over whatever a person added to it')
-if str(opener.get('run', '')).count('--base main') != 2:
+run_text = str(opener.get('run', ''))
+if run_text.count('--base main') != run_text.count('gh pr list') + run_text.count('gh pr create'):
     bad.append('the bump pull request does not target the trunk')
+if opener.get('id') != 'open':
+    bad.append('the open step has no id, so whether it opened anything reaches nothing')
 if 'README.md' not in str(opener.get('run', '')):
     bad.append('the rewritten README sample is not committed')
 rewrite = named['Rewrite the README\x27s sample failure at the new pin']
@@ -417,19 +429,12 @@ if rewrite.get('id') != 'readme':
     bad.append('the README step has no id, so its findings verdict reaches nothing')
 auto = named.get('Let a regular bump merge itself once CI passes', {})
 cond = str(auto.get('if', ''))
-for need in ('success()', 'changed == \x27true\x27', 'same_major == \x27true\x27', 'findings_unchanged == \x27true\x27'):
+for need in ('success()', 'created == \x27true\x27', 'same_major == \x27true\x27', 'findings_unchanged == \x27true\x27'):
     if need not in cond:
         bad.append('auto-merge is not gated on ' + need)
-if 'required_status_checks' not in str(auto.get('run', '')) or '--auto' not in str(auto.get('run', '')):
-    bad.append('auto-merge does not wait for required checks, or does not check main requires any')
-for step, label in ((auto, 'auto-merge'), (opener, 'the PR lookup')):
-    if 'isCrossRepository == false' not in str(step.get('run', '')):
-        bad.append(label + ' can pick up a fork pull request with the same branch name')
-if '--match-head-commit' not in str(auto.get('run', '')):
-    bad.append('auto-merge is not bound to the commit the bump branch holds')
 if '-eq 2' not in str(rewrite.get('run', '')):
     bad.append('a changed finding stops the bump instead of opening it for a person')
-for n in ('Run the suite at the new pin', 'Rewrite the README\x27s sample failure at the new pin', 'Open or refresh the pull request'):
+for n in ('Run the suite at the new pin', 'Rewrite the README\x27s sample failure at the new pin', 'Open the pull request'):
     cond = str(named[n].get('if', ''))
     if 'changed' not in cond or 'success()' not in cond:
         bad.append(n + ' is not gated on success() and a real change')
@@ -437,4 +442,162 @@ if bad:
     print('; '.join(bad)); sys.exit(1)
 " "$wf"
   [ "$status" -eq 0 ]
+}
+
+# --- The bump workflow's open and auto-merge steps, run --------------------
+# These steps decide whether anything merges into main with no person
+# involved, so they are run rather than read: each test extracts a step's
+# shell from the workflow and runs it against a gh and a git that answer from
+# fixtures and log what they were asked to do. gh applies the step's own
+# --jq filter with the real jq, so the selections are exercised too.
+
+BUMP_SHA="4444444444444444444444444444444444444444"
+
+step_script() {
+  python3 -c "
+import sys, yaml
+steps = yaml.safe_load(open(sys.argv[1]))['jobs']['bump']['steps']
+print([s for s in steps if s.get('name') == sys.argv[2]][0]['run'])
+" "$REPO_ROOT/.github/workflows/harness-pin.yml" "$1" > "$TMP/step.sh"
+}
+
+make_workflow_tools() {
+  # Fixtures, each optional: open.json and closed.json answer gh pr list by
+  # --state, rules.json answers the rules endpoint, branch_sha is the bump
+  # branch's commit on origin (absent: the branch does not exist).
+  mkdir -p "$TMP/wfbin"
+  cat > "$TMP/wfbin/gh" <<EOF
+#!/usr/bin/env bash
+printf 'gh %s\n' "\$*" >> "$TMP/calls.log"
+filter=""; prev=""
+for a in "\$@"; do [ "\$prev" = "--jq" ] && filter="\$a"; prev="\$a"; done
+answer() { [ -f "\$1" ] || { echo '[]' > "\$1"; }; jq -r "\$filter" "\$1"; }
+case "\$*" in
+  "pr list"*"--state open"*)   answer "$TMP/open.json" ;;
+  "pr list"*"--state closed"*) answer "$TMP/closed.json" ;;
+  "api"*"rules/branches/main"*) answer "$TMP/rules.json" ;;
+  "pr create"*) echo "https://github.com/damson/skill-lint/pull/99" ;;
+  "pr merge"*|"pr comment"*) : ;;
+  *) echo "unexpected gh call: \$*" >&2; exit 1 ;;
+esac
+EOF
+  cat > "$TMP/wfbin/git" <<EOF
+#!/usr/bin/env bash
+printf 'git %s\n' "\$*" >> "$TMP/calls.log"
+case "\$*" in
+  ls-remote*)
+    [ -f "$TMP/branch_sha" ] || exit 2
+    printf '%s\trefs/heads/chore/harness-pin-v1.8.0\n' "\$(cat "$TMP/branch_sha")" ;;
+  *) : ;;
+esac
+EOF
+  chmod +x "$TMP/wfbin/gh" "$TMP/wfbin/git"
+  : > "$TMP/calls.log"
+  : > "$TMP/out"
+}
+
+run_step() {
+  run env PATH="$TMP/wfbin:$PATH" GITHUB_OUTPUT="$TMP/out" GITHUB_REPOSITORY=damson/skill-lint \
+    GH_TOKEN=x TAG=v1.8.0 CURRENT=1111111111111111111111111111111111111111 LATEST="$BUMP_SHA" \
+    SAME_MAJOR=true FINDINGS_UNCHANGED=true bash "$TMP/step.sh"
+}
+
+ALL_REQUIRED='[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"tests"},{"context":"good-tree-passes"},{"context":"bad-tree-must-fail"}]}}]'
+
+@test "bump workflow, open: a new release opens one pull request from this repo" {
+  make_workflow_tools
+  step_script "Open the pull request"
+  run_step
+  [ "$status" -eq 0 ]
+  grep -q '^git push -u origin chore/harness-pin-v1.8.0$' "$TMP/calls.log"
+  grep -q '^gh pr create --base main --head chore/harness-pin-v1.8.0' "$TMP/calls.log"
+  grep -qx 'created=true' "$TMP/out"
+}
+
+@test "bump workflow, open: an open pull request is left alone, body and hold included" {
+  make_workflow_tools
+  echo '[{"number":7,"isCrossRepository":false}]' > "$TMP/open.json"
+  echo "$BUMP_SHA" > "$TMP/branch_sha"
+  step_script "Open the pull request"
+  run_step
+  [ "$status" -eq 0 ]
+  [ "$(grep -cE '^gh pr (create|edit|merge)|^git push' "$TMP/calls.log")" -eq 0 ]
+  grep -qx 'created=false' "$TMP/out"
+}
+
+@test "bump workflow, open: a pull request closed unmerged declines the release for good" {
+  make_workflow_tools
+  echo '[{"number":7,"isCrossRepository":false,"mergedAt":null}]' > "$TMP/closed.json"
+  echo "$BUMP_SHA" > "$TMP/branch_sha"
+  step_script "Open the pull request"
+  run_step
+  [ "$status" -eq 0 ]
+  [ "$(grep -cE '^gh pr (create|edit|merge)|^git push' "$TMP/calls.log")" -eq 0 ]
+  grep -qx 'created=false' "$TMP/out"
+}
+
+@test "bump workflow, open: a fork's pull request of the same branch name is not the bump" {
+  make_workflow_tools
+  echo '[{"number":8,"isCrossRepository":true}]' > "$TMP/open.json"
+  echo '[{"number":9,"isCrossRepository":true,"mergedAt":null}]' > "$TMP/closed.json"
+  step_script "Open the pull request"
+  run_step
+  [ "$status" -eq 0 ]
+  grep -q '^gh pr create --base main --head chore/harness-pin-v1.8.0' "$TMP/calls.log"
+  grep -qx 'created=true' "$TMP/out"
+}
+
+@test "bump workflow, open: an existing bump branch keeps a person's commits" {
+  make_workflow_tools
+  echo "$BUMP_SHA" > "$TMP/branch_sha"
+  step_script "Open the pull request"
+  run_step
+  [ "$status" -eq 0 ]
+  [ "$(grep -cE '^git (push|commit|checkout)' "$TMP/calls.log")" -eq 0 ]
+  grep -q '^gh pr create' "$TMP/calls.log"
+}
+
+@test "bump workflow, auto-merge: armed on this repo's pull request, bound to the branch's commit" {
+  make_workflow_tools
+  echo "$BUMP_SHA" > "$TMP/branch_sha"
+  echo "[{\"number\":8,\"isCrossRepository\":true,\"headRefOid\":\"$BUMP_SHA\"},{\"number\":7,\"isCrossRepository\":false,\"headRefOid\":\"$BUMP_SHA\"}]" > "$TMP/open.json"
+  echo "$ALL_REQUIRED" > "$TMP/rules.json"
+  step_script "Let a regular bump merge itself once CI passes"
+  run_step
+  [ "$status" -eq 0 ]
+  grep -qx "gh pr merge 7 --auto --squash --match-head-commit $BUMP_SHA" "$TMP/calls.log"
+}
+
+@test "bump workflow, auto-merge: not armed when main requires none of the checks" {
+  make_workflow_tools
+  echo "$BUMP_SHA" > "$TMP/branch_sha"
+  echo "[{\"number\":7,\"isCrossRepository\":false,\"headRefOid\":\"$BUMP_SHA\"}]" > "$TMP/open.json"
+  echo '[]' > "$TMP/rules.json"
+  step_script "Let a regular bump merge itself once CI passes"
+  run_step
+  [ "$status" -eq 0 ]
+  [ "$(grep -cE '^gh pr merge' "$TMP/calls.log")" -eq 0 ]
+  grep -q '^gh pr comment 7' "$TMP/calls.log"
+}
+
+@test "bump workflow, auto-merge: not armed when main requires only some of the checks" {
+  make_workflow_tools
+  echo "$BUMP_SHA" > "$TMP/branch_sha"
+  echo "[{\"number\":7,\"isCrossRepository\":false,\"headRefOid\":\"$BUMP_SHA\"}]" > "$TMP/open.json"
+  echo '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"tests"}]}}]' > "$TMP/rules.json"
+  step_script "Let a regular bump merge itself once CI passes"
+  run_step
+  [ "$status" -eq 0 ]
+  [ "$(grep -cE '^gh pr merge' "$TMP/calls.log")" -eq 0 ]
+}
+
+@test "bump workflow, auto-merge: never a fork's pull request, nor one at another commit" {
+  make_workflow_tools
+  echo "$BUMP_SHA" > "$TMP/branch_sha"
+  echo "[{\"number\":8,\"isCrossRepository\":true,\"headRefOid\":\"$BUMP_SHA\"},{\"number\":7,\"isCrossRepository\":false,\"headRefOid\":\"5555555555555555555555555555555555555555\"}]" > "$TMP/open.json"
+  echo "$ALL_REQUIRED" > "$TMP/rules.json"
+  step_script "Let a regular bump merge itself once CI passes"
+  run_step
+  [ "$status" -eq 1 ]
+  [ "$(grep -cE '^gh pr merge' "$TMP/calls.log")" -eq 0 ]
 }

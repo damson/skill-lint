@@ -77,10 +77,11 @@ emit changed true
 
 # Whether the move stays inside one major version, which is half of what lets
 # the workflow merge it unattended. The current pin's tag is looked up rather
-# than remembered; a pin on no tag, a lookup that fails, or a tag with no
-# version number counts as a new major, so the unknown case always reaches a
-# person.
-current_tag=$(gh api "repos/$HARNESS_REPO/tags" --paginate --jq ".[] | select(.commit.sha == \"$current\") | .name" 2>/dev/null | head -1) || current_tag=""
+# than remembered, and only a full release tag counts: the floating major tag
+# and a pre-release share the commit or the number without being the release.
+# A pin on no such tag, or a lookup that fails, counts as a new major, so the
+# unknown case always reaches a person.
+current_tag=$(gh api "repos/$HARNESS_REPO/tags" --paginate --jq ".[] | select(.commit.sha == \"$current\") | .name | select(test(\"^v?[0-9]+[.][0-9]+[.][0-9]+$\"))" 2>/dev/null | head -1) || current_tag=""
 major_of() { printf '%s\n' "$1" | grep -oE '^v?[0-9]+' | tr -d v || true; }
 current_major=$(major_of "$current_tag")
 if [ -n "$current_major" ] && [ "$current_major" = "$(major_of "$tag")" ]; then
