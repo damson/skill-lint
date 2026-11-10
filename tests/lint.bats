@@ -327,8 +327,8 @@ EOF
 }
 
 @test "bump: a rewrite that did not take is reported, not announced" {
-  # The rewrite goes through sed, whose flags differ between BSD and GNU; a
-  # sed that matches nothing exits 0 and leaves the old pin. A stand-in that
+  # A sed whose pattern matches nothing exits 0 and leaves the old pin, so
+  # the script checks the file rather than sed's status. A stand-in that
   # copies its input unchanged is that sed.
   make_action_file "1111111111111111111111111111111111111111"
   make_gh "v9.9.9" "2222222222222222222222222222222222222222"
