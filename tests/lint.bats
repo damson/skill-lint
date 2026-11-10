@@ -305,6 +305,16 @@ EOF
   grep -qx "same_major=false" "$TMP/out"
 }
 
+@test "bump: release tags of two majors on the pin are an unknown" {
+  make_action_file "1111111111111111111111111111111111111111"
+  make_gh "v1.8.0" "2222222222222222222222222222222222222222" \
+    '[{"name":"v1.7.1","commit":{"sha":"1111111111111111111111111111111111111111"}},{"name":"v2.0.0","commit":{"sha":"1111111111111111111111111111111111111111"}}]'
+  run env PATH="$TMP/bin:$PATH" ACTION_FILE="$TMP/action.yml" GITHUB_OUTPUT="$TMP/out" \
+    "$REPO_ROOT/bin/bump-harness-pin.sh"
+  [ "$status" -eq 0 ]
+  grep -qx "same_major=false" "$TMP/out"
+}
+
 @test "bump: a pin on only a floating or pre-release tag is not the same major" {
   # v1 and v1.8.0-rc.1 carry a major number without being a release; a pin
   # that sits on nothing else is an unknown, which a person reviews.
@@ -428,10 +438,13 @@ rewrite = named['Rewrite the README\x27s sample failure at the new pin']
 if rewrite.get('id') != 'readme':
     bad.append('the README step has no id, so its findings verdict reaches nothing')
 auto = named.get('Let a regular bump merge itself once CI passes', {})
-cond = str(auto.get('if', ''))
-for need in ('success()', 'created == \x27true\x27', 'same_major == \x27true\x27', 'findings_unchanged == \x27true\x27'):
-    if need not in cond:
-        bad.append('auto-merge is not gated on ' + need)
+want = 'success() && steps.open.outputs.created == \x27true\x27 && steps.bump.outputs.same_major == \x27true\x27 && steps.readme.outputs.findings_unchanged == \x27true\x27'
+if str(auto.get('if', '')) != want:
+    bad.append('auto-merge is not gated on exactly: ' + want)
+for step in (opener, auto):
+    text = str(step.get('run', ''))
+    if text.count('gh pr list') != text.count('--limit 1000'):
+        bad.append(step.get('name') + ' lists pull requests within the default page of 30')
 if '-eq 2' not in str(rewrite.get('run', '')):
     bad.append('a changed finding stops the bump instead of opening it for a person')
 for n in ('Run the suite at the new pin', 'Rewrite the README\x27s sample failure at the new pin', 'Open the pull request'):
@@ -502,7 +515,7 @@ run_step() {
     SAME_MAJOR=true FINDINGS_UNCHANGED=true bash "$TMP/step.sh"
 }
 
-ALL_REQUIRED='[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"tests"},{"context":"good-tree-passes"},{"context":"bad-tree-must-fail"}]}}]'
+ALL_REQUIRED='[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"tests","integration_id":15368},{"context":"good-tree-passes","integration_id":15368},{"context":"bad-tree-must-fail","integration_id":15368}]}}]'
 
 @test "bump workflow, open: a new release opens one pull request from this repo" {
   make_workflow_tools
@@ -585,6 +598,18 @@ ALL_REQUIRED='[{"type":"required_status_checks","parameters":{"required_status_c
   echo "$BUMP_SHA" > "$TMP/branch_sha"
   echo "[{\"number\":7,\"isCrossRepository\":false,\"headRefOid\":\"$BUMP_SHA\"}]" > "$TMP/open.json"
   echo '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"tests"}]}}]' > "$TMP/rules.json"
+  step_script "Let a regular bump merge itself once CI passes"
+  run_step
+  [ "$status" -eq 0 ]
+  [ "$(grep -cE '^gh pr merge' "$TMP/calls.log")" -eq 0 ]
+}
+
+@test "bump workflow, auto-merge: not armed when the checks are not bound to GitHub Actions" {
+  # An unbound required check is satisfied by a status any token can post.
+  make_workflow_tools
+  echo "$BUMP_SHA" > "$TMP/branch_sha"
+  echo "[{\"number\":7,\"isCrossRepository\":false,\"headRefOid\":\"$BUMP_SHA\"}]" > "$TMP/open.json"
+  echo '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"tests"},{"context":"good-tree-passes"},{"context":"bad-tree-must-fail"}]}}]' > "$TMP/rules.json"
   step_script "Let a regular bump merge itself once CI passes"
   run_step
   [ "$status" -eq 0 ]

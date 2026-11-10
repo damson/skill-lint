@@ -79,11 +79,15 @@ emit changed true
 # the workflow merge it unattended. The current pin's tag is looked up rather
 # than remembered, and only a full release tag counts: the floating major tag
 # and a pre-release share the commit or the number without being the release.
-# A pin on no such tag, or a lookup that fails, counts as a new major, so the
-# unknown case always reaches a person.
-current_tag=$(gh api "repos/$HARNESS_REPO/tags" --paginate --jq ".[] | select(.commit.sha == \"$current\") | .name | select(test(\"^v?[0-9]+[.][0-9]+[.][0-9]+$\"))" 2>/dev/null | head -1) || current_tag=""
+# A pin on no such tag, on release tags of two majors, or a lookup that fails
+# counts as a new major, so the unknown case always reaches a person.
+current_tags=$(gh api "repos/$HARNESS_REPO/tags" --paginate --jq ".[] | select(.commit.sha == \"$current\") | .name | select(test(\"^v?[0-9]+[.][0-9]+[.][0-9]+$\"))" 2>/dev/null) || current_tags=""
+current_tag=$(printf '%s\n' "$current_tags" | head -1)
 major_of() { printf '%s\n' "$1" | grep -oE '^v?[0-9]+' | tr -d v || true; }
 current_major=$(major_of "$current_tag")
+# Release tags from two majors on one commit leave the pin's major unknown.
+majors=$(printf '%s\n' "$current_tags" | { grep -oE '^v?[0-9]+' || true; } | tr -d v | sort -u | grep -c . || true)
+[ "$majors" -le 1 ] || current_major=""
 if [ -n "$current_major" ] && [ "$current_major" = "$(major_of "$tag")" ]; then
     echo "Same major version: ${current_tag} -> ${tag}."
     emit same_major true

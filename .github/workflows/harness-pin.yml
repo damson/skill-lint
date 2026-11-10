@@ -120,13 +120,13 @@ jobs:
         run: |
           set -euo pipefail
           branch="chore/harness-pin-${TAG}"
-          open=$(gh pr list --base main --head "$branch" --state open --json number,isCrossRepository --jq '[.[] | select(.isCrossRepository == false)][0].number // empty')
+          open=$(gh pr list --base main --head "$branch" --state open --limit 1000 --json number,isCrossRepository --jq '[.[] | select(.isCrossRepository == false)][0].number // empty')
           if [ -n "$open" ]; then
             echo "#${open} is already open for ${branch}; leaving it alone."
             echo "created=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          declined=$(gh pr list --base main --head "$branch" --state closed --json number,isCrossRepository,mergedAt --jq '[.[] | select(.isCrossRepository == false and .mergedAt == null)][0].number // empty')
+          declined=$(gh pr list --base main --head "$branch" --state closed --limit 1000 --json number,isCrossRepository,mergedAt --jq '[.[] | select(.isCrossRepository == false and .mergedAt == null)][0].number // empty')
           if [ -n "$declined" ]; then
             echo "::notice::#${declined} for ${branch} was closed without merging, so this release was declined. Not reopening it."
             echo "created=false" >> "$GITHUB_OUTPUT"
@@ -162,9 +162,10 @@ jobs:
             body="${body}
 
           This is a regular bump: the same major version upstream, and the
-          same findings on the bad fixtures. Auto-merge is enabled once, now,
-          if main requires CI; turn it off on this pull request to hold it, or
-          close it to decline the release. Neither is undone by a later run."
+          same findings on the bad fixtures, so this run enables auto-merge on
+          it if main requires every CI check; if it does not, a comment below
+          says so and this waits. Turn auto-merge off to hold the bump, or close
+          the pull request to decline the release: neither is undone later."
           else
             body="${body}
 
@@ -191,13 +192,15 @@ jobs:
           branch="chore/harness-pin-${TAG}"
           head=$(git ls-remote origin "refs/heads/${branch}" | cut -f1)
           printf '%s' "$head" | grep -qE '^[0-9a-f]{40}$' || { echo "::error::No commit found on ${branch}"; exit 1; }
-          pr=$(gh pr list --base main --head "$branch" --state open --json number,isCrossRepository,headRefOid --jq "[.[] | select(.isCrossRepository == false and .headRefOid == \"${head}\")][0].number // empty")
+          pr=$(gh pr list --base main --head "$branch" --state open --limit 1000 --json number,isCrossRepository,headRefOid --jq "[.[] | select(.isCrossRepository == false and .headRefOid == \"${head}\")][0].number // empty")
           [ -n "$pr" ] || { echo "::error::No open pull request from this repo's ${branch} at ${head}"; exit 1; }
-          required=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/rules/branches/main" --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context')
+          # A required check counts only when bound to GitHub Actions (app
+          # 15368): an unbound one is satisfied by a status any token posts.
+          required=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/rules/branches/main" --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[] | select(.integration_id == 15368) | .context')
           for check in tests good-tree-passes bad-tree-must-fail; do
             if ! printf '%s\n' "$required" | grep -qx "$check"; then
-              echo "::warning::main does not require ${check}, so auto-merge would not wait for it. This bump waits for a person."
-              gh pr comment "$pr" --body "Auto-merge was not enabled: main does not require the \`${check}\` check, so it would not have waited for CI. Merge this by hand once the checks pass."
+              echo "::warning::main does not require ${check} from GitHub Actions, so auto-merge would not wait for it. This bump waits for a person."
+              gh pr comment "$pr" --body "Auto-merge was not enabled: main does not require the \`${check}\` check from GitHub Actions, so it would not have waited for CI. Merge this by hand once the checks pass."
               exit 0
             fi
           done
