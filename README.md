@@ -86,7 +86,7 @@ No cryptic exit codes: each finding says what's wrong and what to do about it:
 | Input | Default | Meaning |
 |---|---|---|
 | `path` | `skills` | Directory holding the skills to lint |
-| `harness-ref` | pinned commit | The exact linter version this action runs. A daily job compares it with the upstream's latest release and opens a pull request when it moves, having run the linter at the new pin on the bad fixtures first and rewritten the sample failure above from its output |
+| `harness-ref` | pinned commit | The exact linter version this action runs. A daily job compares it with the upstream's latest release and opens a pull request when it moves, having run the linter at the new pin on the bad fixtures first and rewritten the sample failure above from its output. A bump inside the same major version with the same findings merges itself once CI passes; anything else waits for a review |
 
 No token, ever: the harness is public and the fetch is anonymous.
 

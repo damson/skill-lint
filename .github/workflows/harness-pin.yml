@@ -6,9 +6,12 @@ name: Harness pin
 # current one. This one sat three weeks and five upstream releases behind, and a
 # person found it rather than a check.
 #
-# So the comparison runs on a schedule and the decision does not: this opens a
-# pull request and stops. The upstream promotes to its default branch only when
-# it cuts a release, so one pull request here is one release there.
+# So the comparison runs on a schedule, and this opens a pull request. A
+# regular bump, one inside the same major version whose findings on the bad
+# fixtures are unchanged, is set to auto-merge once the required checks pass;
+# anything else waits for a person. The upstream promotes to its default
+# branch only when it cuts a release, so one pull request here is one release
+# there.
 #
 # The schedule is the trigger of last resort, and it is a poor one: the event
 # that should cause this work happens in another repository, and GitHub delays
@@ -79,6 +82,7 @@ jobs:
       # untouched, so its own README check is red until a person describes
       # the change on the branch.
       - name: Rewrite the README's sample failure at the new pin
+        id: readme
         if: success() && steps.bump.outputs.changed == 'true'
         env:
           LATEST: ${{ steps.bump.outputs.latest }}
@@ -89,24 +93,47 @@ jobs:
           ./bin/check-readme-sample.sh --write "$RUNNER_TEMP/harness" || status=$?
           if [ "$status" -eq 2 ]; then
             echo "::warning::The linter's findings changed; the bump opens with the README sample for a person to update."
+            echo "findings_unchanged=false" >> "$GITHUB_OUTPUT"
           elif [ "$status" -ne 0 ]; then
             exit "$status"
+          else
+            echo "findings_unchanged=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # A branch that already exists is left alone: it is this same release's
-      # bump, and anything pushed onto it since is a person's fix to it.
-      - name: Open or refresh the pull request
+      # Opens the bump once and never touches it again. An open pull request
+      # for this release is left alone, body and auto-merge setting included,
+      # because a person may have edited or held it. One closed without
+      # merging is a person declining this release, so it is not reopened. A
+      # bump branch that already exists keeps its commits: anything pushed onto
+      # it is a person's fix. --head matches a branch name in any fork too, so
+      # every lookup keeps only this repository's own pull requests.
+      - name: Open the pull request
+        id: open
         if: success() && steps.bump.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.PIN_BUMP_TOKEN }}
           TAG: ${{ steps.bump.outputs.tag }}
           CURRENT: ${{ steps.bump.outputs.current }}
           LATEST: ${{ steps.bump.outputs.latest }}
+          SAME_MAJOR: ${{ steps.bump.outputs.same_major }}
+          FINDINGS_UNCHANGED: ${{ steps.readme.outputs.findings_unchanged }}
         run: |
           set -euo pipefail
           branch="chore/harness-pin-${TAG}"
+          open=$(gh pr list --base main --head "$branch" --state open --limit 1000 --json number,isCrossRepository --jq '[.[] | select(.isCrossRepository == false)][0].number // empty')
+          if [ -n "$open" ]; then
+            echo "#${open} is already open for ${branch}; leaving it alone."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          declined=$(gh pr list --base main --head "$branch" --state closed --limit 1000 --json number,isCrossRepository,mergedAt --jq '[.[] | select(.isCrossRepository == false and .mergedAt == null)][0].number // empty')
+          if [ -n "$declined" ]; then
+            echo "::notice::#${declined} for ${branch} was closed without merging, so this release was declined. Not reopening it."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
-            echo "$branch already exists; leaving its commits alone."
+            echo "${branch} already exists; keeping its commits."
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -121,7 +148,6 @@ jobs:
           README's sample failure."
             git push -u origin "$branch"
           fi
-          existing=$(gh pr list --base main --head "$branch" --state open --json number --jq '.[0].number // empty')
           body="The upstream cut \`${TAG}\`, so the linter this action runs moved.
 
           \`harness-ref\`: \`${CURRENT}\` to \`${LATEST}\`.
@@ -132,9 +158,50 @@ jobs:
           whether the new checks are ones you want enforced on everyone
           consuming this action, or whether the README's prose still describes
           them, so read the upstream's release notes before merging."
-          if [ -n "$existing" ]; then
-            gh pr edit "$existing" --body "$body"
+          if [ "$SAME_MAJOR" = true ] && [ "$FINDINGS_UNCHANGED" = true ]; then
+            body="${body}
+
+          This is a regular bump: the same major version upstream, and the
+          same findings on the bad fixtures, so this run enables auto-merge on
+          it if main requires every CI check; if it does not, a comment below
+          says so and this waits. Turn auto-merge off to hold the bump, or close
+          the pull request to decline the release: neither is undone later."
           else
-            gh pr create --base main --head "$branch" \
-              --title "Pin the linter to the harness at ${TAG}" --body "$body"
+            body="${body}
+
+          This one waits for a person: it is a new major version upstream, or
+          the linter's findings on the bad fixtures changed (same major:
+          ${SAME_MAJOR}, same findings: ${FINDINGS_UNCHANGED:-false})."
           fi
+          gh pr create --base main --head "$branch" \
+            --title "Pin the linter to the harness at ${TAG}" --body "$body"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+      # Runs only on the run that opened the pull request, so a person's later
+      # hold is never overridden. Auto-merge waits only for the checks main
+      # requires, so it is enabled only when main requires all three of this
+      # repository's CI checks; otherwise the pull request says why and waits.
+      # The merge is bound to the commit the bump branch holds now.
+      - name: Let a regular bump merge itself once CI passes
+        if: success() && steps.open.outputs.created == 'true' && steps.bump.outputs.same_major == 'true' && steps.readme.outputs.findings_unchanged == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PIN_BUMP_TOKEN }}
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          set -euo pipefail
+          branch="chore/harness-pin-${TAG}"
+          head=$(git ls-remote origin "refs/heads/${branch}" | cut -f1)
+          printf '%s' "$head" | grep -qE '^[0-9a-f]{40}$' || { echo "::error::No commit found on ${branch}"; exit 1; }
+          pr=$(gh pr list --base main --head "$branch" --state open --limit 1000 --json number,isCrossRepository,headRefOid --jq "[.[] | select(.isCrossRepository == false and .headRefOid == \"${head}\")][0].number // empty")
+          [ -n "$pr" ] || { echo "::error::No open pull request from this repo's ${branch} at ${head}"; exit 1; }
+          # A required check counts only when bound to GitHub Actions (app
+          # 15368): an unbound one is satisfied by a status any token posts.
+          required=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/rules/branches/main" --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[] | select(.integration_id == 15368) | .context')
+          for check in tests good-tree-passes bad-tree-must-fail; do
+            if ! printf '%s\n' "$required" | grep -qx "$check"; then
+              echo "::warning::main does not require ${check} from GitHub Actions, so auto-merge would not wait for it. This bump waits for a person."
+              gh pr comment "$pr" --body "Auto-merge was not enabled: main does not require the \`${check}\` check from GitHub Actions, so it would not have waited for CI. Merge this by hand once the checks pass."
+              exit 0
+            fi
+          done
+          gh pr merge "$pr" --auto --squash --match-head-commit "$head"
