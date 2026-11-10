@@ -9,12 +9,18 @@ permissions:
 
 on:
   pull_request:
+  # The trunk, because Codecov diffs a pull request against a report for its
+  # BASE commit, and every pull request here targets main. Without a report
+  # for main, a pull request reads a bare figure and no delta.
   push:
-    branches: [develop]
+    branches: [main]
 
 concurrency:
   group: coverage-${{ github.ref }}
-  cancel-in-progress: true
+  # A superseded pull request run is waste, but a superseded push to main
+  # takes the base upload with it, and Codecov then has
+  # nothing to diff the next pull request against.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   coverage:
@@ -22,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install bats
         run: sudo apt-get update -q && sudo apt-get install -y -q bats
@@ -30,7 +36,7 @@ jobs:
       # Ubuntu 24.04 carries no kcov package; build a pinned release once and
       # let the cache make every later run a no-op.
       - name: Restore kcov from cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.local/kcov
           key: kcov-43-${{ runner.os }}-noble
@@ -42,10 +48,17 @@ jobs:
       - name: Run the suite under kcov
         run: |
           set -euo pipefail
+          # kcov counts every line of a multi-line literal as a bash statement
+          # that never ran, so an embedded awk program reads as uncovered
+          # however often the suite runs it. Its source sits between
+          # kcov-ignore-start and kcov-ignore-end; wrap only foreign source
+          # there, because a bash statement inside a region stops being
+          # measured at all.
           "$HOME/.local/kcov/bin/kcov" \
                --include-path="$PWD/bin" \
                --bash-parse-files-in-dir="$PWD/bin" \
                --exclude-pattern=/tests/ \
+               --exclude-region=kcov-ignore-start:kcov-ignore-end \
                coverage-out "$(command -v bats)" tests/
           xml="coverage-out/kcov-merged/cobertura.xml"
           if [ ! -f "$xml" ]; then
@@ -59,7 +72,7 @@ jobs:
           echo "COBERTURA=$xml" >> "$GITHUB_ENV"
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: ${{ env.COBERTURA }}
           # Without this the uploader also auto-collects anything whose name
