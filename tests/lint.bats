@@ -328,11 +328,15 @@ checkout = [s for s in steps if str(s.get('uses','')).startswith('actions/checko
 bad = []
 if 'PIN_BUMP_TOKEN' not in str(checkout.get('with', {})):
     bad.append('checkout pushes with the default token')
+if checkout.get('with', {}).get('ref') != 'main':
+    bad.append('the bump is cut from a branch other than the trunk')
 opener = named['Open or refresh the pull request']
 if 'PIN_BUMP_TOKEN' not in str(opener.get('env', {})):
     bad.append('the PR is opened with the default token')
 if '--force' in str(opener.get('run', '')):
     bad.append('the PR branch is force-pushed over whatever a person added to it')
+if str(opener.get('run', '')).count('--base main') != 2:
+    bad.append('the bump pull request does not target the trunk')
 if 'README.md' not in str(opener.get('run', '')):
     bad.append('the rewritten README sample is not committed')
 rewrite = named['Rewrite the README\x27s sample failure at the new pin']

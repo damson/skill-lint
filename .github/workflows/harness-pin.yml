@@ -51,7 +51,7 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: develop
+          ref: main
           token: ${{ secrets.PIN_BUMP_TOKEN }}
 
       - name: Compare the pin with the upstream's latest release
@@ -121,7 +121,7 @@ jobs:
           README's sample failure."
             git push -u origin "$branch"
           fi
-          existing=$(gh pr list --base develop --head "$branch" --state open --json number --jq '.[0].number // empty')
+          existing=$(gh pr list --base main --head "$branch" --state open --json number --jq '.[0].number // empty')
           body="The upstream cut \`${TAG}\`, so the linter this action runs moved.
 
           \`harness-ref\`: \`${CURRENT}\` to \`${LATEST}\`.
@@ -135,6 +135,6 @@ jobs:
           if [ -n "$existing" ]; then
             gh pr edit "$existing" --body "$body"
           else
-            gh pr create --base develop --head "$branch" \
+            gh pr create --base main --head "$branch" \
               --title "Pin the linter to the harness at ${TAG}" --body "$body"
           fi

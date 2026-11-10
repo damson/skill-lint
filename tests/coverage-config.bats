@@ -24,15 +24,13 @@ push_branches() {
   ' "$REPO_ROOT/.github/workflows/coverage.yml"
 }
 
-@test "coverage workflow: both long-lived branches are measured on push" {
-  # Codecov diffs a pull request against a report for its BASE commit. develop
-  # is the base of every feature pull request; main is the base of the release,
-  # and with no report there the release reads a bare figure with no delta, on
-  # the one pull request whose subject is how far the release moves it.
+@test "coverage workflow: the trunk is measured on push" {
+  # Codecov diffs a pull request against a report for its BASE commit, and
+  # every pull request targets main. With no report there, each one reads a
+  # bare figure with no delta.
   local measured
   measured=$(push_branches)
   [ -n "$measured" ]
-  printf '%s\n' "$measured" | tr ',' '\n' | grep -qx develop
   printf '%s\n' "$measured" | tr ',' '\n' | grep -qx main
 }
 
@@ -49,8 +47,8 @@ push_branches() {
   printf '%s\n' "$measured" | tr ',' '\n' | grep -qx "$branch"
 }
 
-@test "coverage workflow: a superseded push to a long-lived branch is not cancelled" {
-  # cancel-in-progress on a push to develop or main takes the base upload with
+@test "coverage workflow: a superseded push to main is not cancelled" {
+  # cancel-in-progress on a push to main takes the base upload with
   # it, and Codecov then has nothing to diff the next pull request against.
   # Superseding a pull request run is fine and is the point of the setting, so
   # the value has to be conditional rather than false.
