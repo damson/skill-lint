@@ -266,7 +266,7 @@ EOF
   run env PATH="$TMP/bin:$PATH" ACTION_FILE="$TMP/action.yml" GITHUB_OUTPUT="$TMP/out" \
     "$REPO_ROOT/bin/bump-harness-pin.sh"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Nothing to do"* ]]
+  printf '%s\n' "$output" | grep -qF "Nothing to do"
   grep -q "changed=false" "$TMP/out"
   grep -q "default: $sha" "$TMP/action.yml"
 }
@@ -335,7 +335,7 @@ EOF
   run env PATH="$TMP/bin:$PATH" ACTION_FILE="$TMP/action.yml" \
     "$REPO_ROOT/bin/bump-harness-pin.sh" --dry-run
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Pin moves"* ]]
+  printf '%s\n' "$output" | grep -qF "Pin moves"
   grep -q "default: $old" "$TMP/action.yml"
 }
 
@@ -347,7 +347,7 @@ EOF
   run env PATH="$TMP/bin:$PATH" ACTION_FILE="$TMP/action.yml" \
     "$REPO_ROOT/bin/bump-harness-pin.sh"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"not a full commit sha"* ]]
+  printf '%s\n' "$output" | grep -qF "not a full commit sha"
   grep -q "default: 1111111111111111111111111111111111111111" "$TMP/action.yml"
 }
 
