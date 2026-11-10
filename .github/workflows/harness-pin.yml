@@ -6,9 +6,12 @@ name: Harness pin
 # current one. This one sat three weeks and five upstream releases behind, and a
 # person found it rather than a check.
 #
-# So the comparison runs on a schedule and the decision does not: this opens a
-# pull request and stops. The upstream promotes to its default branch only when
-# it cuts a release, so one pull request here is one release there.
+# So the comparison runs on a schedule, and this opens a pull request. A
+# regular bump, one inside the same major version whose findings on the bad
+# fixtures are unchanged, is set to auto-merge once the required checks pass;
+# anything else waits for a person. The upstream promotes to its default
+# branch only when it cuts a release, so one pull request here is one release
+# there.
 #
 # The schedule is the trigger of last resort, and it is a poor one: the event
 # that should cause this work happens in another repository, and GitHub delays
@@ -79,6 +82,7 @@ jobs:
       # untouched, so its own README check is red until a person describes
       # the change on the branch.
       - name: Rewrite the README's sample failure at the new pin
+        id: readme
         if: success() && steps.bump.outputs.changed == 'true'
         env:
           LATEST: ${{ steps.bump.outputs.latest }}
@@ -89,8 +93,11 @@ jobs:
           ./bin/check-readme-sample.sh --write "$RUNNER_TEMP/harness" || status=$?
           if [ "$status" -eq 2 ]; then
             echo "::warning::The linter's findings changed; the bump opens with the README sample for a person to update."
+            echo "findings_unchanged=false" >> "$GITHUB_OUTPUT"
           elif [ "$status" -ne 0 ]; then
             exit "$status"
+          else
+            echo "findings_unchanged=true" >> "$GITHUB_OUTPUT"
           fi
 
       # A branch that already exists is left alone: it is this same release's
@@ -102,6 +109,8 @@ jobs:
           TAG: ${{ steps.bump.outputs.tag }}
           CURRENT: ${{ steps.bump.outputs.current }}
           LATEST: ${{ steps.bump.outputs.latest }}
+          SAME_MAJOR: ${{ steps.bump.outputs.same_major }}
+          FINDINGS_UNCHANGED: ${{ steps.readme.outputs.findings_unchanged }}
         run: |
           set -euo pipefail
           branch="chore/harness-pin-${TAG}"
@@ -132,9 +141,41 @@ jobs:
           whether the new checks are ones you want enforced on everyone
           consuming this action, or whether the README's prose still describes
           them, so read the upstream's release notes before merging."
+          if [ "$SAME_MAJOR" = true ] && [ "$FINDINGS_UNCHANGED" = true ]; then
+            body="${body}
+
+          This is a regular bump: the same major version upstream, and the
+          same findings on the bad fixtures. It merges itself once the required
+          checks pass, unless you turn auto-merge off on this pull request."
+          else
+            body="${body}
+
+          This one waits for a person: it is a new major version upstream, or
+          the linter's findings on the bad fixtures changed (same major:
+          ${SAME_MAJOR}, same findings: ${FINDINGS_UNCHANGED:-false})."
+          fi
           if [ -n "$existing" ]; then
             gh pr edit "$existing" --body "$body"
           else
             gh pr create --base main --head "$branch" \
               --title "Pin the linter to the harness at ${TAG}" --body "$body"
           fi
+
+      # Auto-merge waits only for the checks main requires. With none required
+      # it would merge at once, before CI had run, so that case is left for a
+      # person rather than trusted.
+      - name: Let a regular bump merge itself once CI passes
+        if: success() && steps.bump.outputs.changed == 'true' && steps.bump.outputs.same_major == 'true' && steps.readme.outputs.findings_unchanged == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PIN_BUMP_TOKEN }}
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          set -euo pipefail
+          required=$(gh api "repos/${GITHUB_REPOSITORY}/rules/branches/main" --jq '[.[] | select(.type == "required_status_checks")] | length')
+          if [ "$required" -eq 0 ]; then
+            echo "::warning::main requires no status checks, so auto-merge would not wait for CI. This bump waits for a person."
+            exit 0
+          fi
+          pr=$(gh pr list --base main --head "chore/harness-pin-${TAG}" --state open --json number --jq '.[0].number // empty')
+          [ -n "$pr" ] || { echo "::error::No open pull request for chore/harness-pin-${TAG}"; exit 1; }
+          gh pr merge "$pr" --auto --squash

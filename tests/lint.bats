@@ -238,13 +238,18 @@ make_action_file() {
 # A `gh` that answers the two calls the script makes: the latest release's tag,
 # and the commit that tag names.
 make_gh() {
-  local tag="$1" sha="$2"
+  # $3, when given, is the tag the current pin sits on; without it the tags
+  # lookup fails, as it does for an upstream that cannot be read.
+  local tag="$1" sha="$2" current_tag="${3:-}"
+  local tags_answer="exit 1"
+  [ -n "$current_tag" ] && tags_answer="printf '%s\\n' '$current_tag'"
   mkdir -p "$TMP/bin"
   cat > "$TMP/bin/gh" <<EOF
 #!/usr/bin/env bash
 case "\$*" in
   *releases/latest*) printf '%s\n' "$tag" ;;
   *commits/*)        printf '%s\n' "$sha" ;;
+  *repos/*/tags*)    $tags_answer ;;
   *)                 exit 1 ;;
 esac
 EOF
@@ -274,6 +279,45 @@ EOF
   grep -q "default: $new" "$TMP/action.yml"
   grep -q "changed=true" "$TMP/out"
   grep -q "tag=v1.5.0" "$TMP/out"
+}
+
+@test "bump: a move inside one major version is reported as such" {
+  make_action_file "1111111111111111111111111111111111111111"
+  make_gh "v1.8.0" "2222222222222222222222222222222222222222" "v1.7.1"
+  run env PATH="$TMP/bin:$PATH" ACTION_FILE="$TMP/action.yml" GITHUB_OUTPUT="$TMP/out" \
+    "$REPO_ROOT/bin/bump-harness-pin.sh"
+  [ "$status" -eq 0 ]
+  grep -qx "same_major=true" "$TMP/out"
+}
+
+@test "bump: a new major version is not a regular bump" {
+  make_action_file "1111111111111111111111111111111111111111"
+  make_gh "v2.0.0" "2222222222222222222222222222222222222222" "v1.7.1"
+  run env PATH="$TMP/bin:$PATH" ACTION_FILE="$TMP/action.yml" GITHUB_OUTPUT="$TMP/out" \
+    "$REPO_ROOT/bin/bump-harness-pin.sh"
+  [ "$status" -eq 0 ]
+  grep -qx "same_major=false" "$TMP/out"
+}
+
+@test "bump: tags without a version number are never the same major" {
+  make_action_file "1111111111111111111111111111111111111111"
+  make_gh "nightly" "2222222222222222222222222222222222222222" "nightly-old"
+  run env PATH="$TMP/bin:$PATH" ACTION_FILE="$TMP/action.yml" GITHUB_OUTPUT="$TMP/out" \
+    "$REPO_ROOT/bin/bump-harness-pin.sh"
+  [ "$status" -eq 0 ]
+  grep -qx "same_major=false" "$TMP/out"
+}
+
+@test "bump: a pin whose tag cannot be found counts as a new major" {
+  # The unknown case has to reach a person: a pin on no tag, or a tags lookup
+  # that fails, is never taken as the same major. It still bumps.
+  make_action_file "1111111111111111111111111111111111111111"
+  make_gh "v1.8.0" "2222222222222222222222222222222222222222"
+  run env PATH="$TMP/bin:$PATH" ACTION_FILE="$TMP/action.yml" GITHUB_OUTPUT="$TMP/out" \
+    "$REPO_ROOT/bin/bump-harness-pin.sh"
+  [ "$status" -eq 0 ]
+  grep -q "default: 2222222222222222222222222222222222222222" "$TMP/action.yml"
+  grep -qx "same_major=false" "$TMP/out"
 }
 
 @test "bump: --dry-run says what would move and touches nothing" {
@@ -369,6 +413,15 @@ if str(opener.get('run', '')).count('--base main') != 2:
 if 'README.md' not in str(opener.get('run', '')):
     bad.append('the rewritten README sample is not committed')
 rewrite = named['Rewrite the README\x27s sample failure at the new pin']
+if rewrite.get('id') != 'readme':
+    bad.append('the README step has no id, so its findings verdict reaches nothing')
+auto = named.get('Let a regular bump merge itself once CI passes', {})
+cond = str(auto.get('if', ''))
+for need in ('success()', 'changed == \x27true\x27', 'same_major == \x27true\x27', 'findings_unchanged == \x27true\x27'):
+    if need not in cond:
+        bad.append('auto-merge is not gated on ' + need)
+if 'required_status_checks' not in str(auto.get('run', '')) or '--auto' not in str(auto.get('run', '')):
+    bad.append('auto-merge does not wait for required checks, or does not check main requires any')
 if '-eq 2' not in str(rewrite.get('run', '')):
     bad.append('a changed finding stops the bump instead of opening it for a person')
 for n in ('Run the suite at the new pin', 'Rewrite the README\x27s sample failure at the new pin', 'Open or refresh the pull request'):
