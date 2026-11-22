@@ -28,9 +28,11 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 readme="${README:-README.md}"
 
 # The sample is the first fenced block under its heading, before the next one.
-# One line, however wide: kcov never counts a multi-line substitution's first
-# line as run, nor anything a function runs inside one.
-expected=$(awk '/^## What a failure looks like/ { f = 1; next } f && /^## / { exit } f && /^```/ { if (b) exit; b = 1; next } b { print }' "$readme")
+# The substitution stays on one line: kcov never counts a multi-line one's
+# first line as run, nor anything a function runs inside one.
+sample_block='/^## What a failure looks like/ { f = 1; next } f && /^## / { exit }'
+sample_block="$sample_block"' f && /^```/ { if (b) exit; b = 1; next } b { print }'
+expected=$(awk "$sample_block" "$readme")
 [ -n "$expected" ] || { echo "::error::No sample failure found in $readme"; exit 1; }
 
 # The bad fixtures exist to fail, so a zero exit is an error of its own.

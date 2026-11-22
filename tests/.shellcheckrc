@@ -1,0 +1,10 @@
+# ShellCheck exemptions for the bats files, each with its reason. The scripts
+# in bin/ have none.
+
+# The tests write markdown fences and stub scripts as literal text, where a
+# backtick or a $ has to reach the file unexpanded.
+disable=SC2016
+
+# The file-mode assertion reads `ls -l`, because stat's flags differ between
+# BSD and GNU and the suite runs on both.
+disable=SC2012
