@@ -55,11 +55,11 @@ jobs:
           # there, because a bash statement inside a region stops being
           # measured at all.
           "$HOME/.local/kcov/bin/kcov" \
-               --include-path="$PWD/bin" \
-               --bash-parse-files-in-dir="$PWD/bin" \
-               --exclude-pattern=/tests/ \
-               --exclude-region=kcov-ignore-start:kcov-ignore-end \
-               coverage-out "$(command -v bats)" tests/
+              --include-path="$PWD/bin" \
+              --bash-parse-files-in-dir="$PWD/bin" \
+              --exclude-pattern=/tests/ \
+              --exclude-region=kcov-ignore-start:kcov-ignore-end \
+              coverage-out "$(command -v bats)" tests/
           xml="coverage-out/kcov-merged/cobertura.xml"
           if [ ! -f "$xml" ]; then
             xml=$(find coverage-out -maxdepth 2 -name cobertura.xml | sort | head -1)
