@@ -71,7 +71,7 @@ git clone --depth 1 https://github.com/damson/agent-config-harness
 ./agent-config-harness/bin/validate-skills.sh path/to/skills
 ```
 
-## What a failure looks like   
+## What a failure looks like
 
 No cryptic exit codes: each finding says what's wrong and what to do about it:
 
