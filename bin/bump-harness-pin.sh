@@ -81,7 +81,8 @@ emit changed true
 # and a pre-release share the commit or the number without being the release.
 # A pin on no such tag, on release tags of two majors, or a lookup that fails
 # counts as a new major, so the unknown case always reaches a person.
-current_tags=$(gh api "repos/$HARNESS_REPO/tags" --paginate --jq ".[] | select(.commit.sha == \"$current\") | .name | select(test(\"^v?[0-9]+[.][0-9]+[.][0-9]+$\"))" 2>/dev/null) || current_tags=""
+release_tags_on_pin=".[] | select(.commit.sha == \"$current\") | .name | select(test(\"^v?[0-9]+[.][0-9]+[.][0-9]+$\"))"
+current_tags=$(gh api "repos/$HARNESS_REPO/tags" --paginate --jq "$release_tags_on_pin" 2>/dev/null) || current_tags=""
 current_tag=$(printf '%s\n' "$current_tags" | head -1)
 major_of() { printf '%s\n' "$1" | grep -oE '^v?[0-9]+' | tr -d v || true; }
 current_major=$(major_of "$current_tag")

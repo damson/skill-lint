@@ -18,6 +18,21 @@ jobs:
       - name: Run the suite
         run: bats tests/
 
+  # The repository's own scripts and files, held to ShellCheck and to
+  # .editorconfig. Exemptions live in tests/.shellcheckrc and .editorconfig,
+  # each with its reason.
+  style:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install ShellCheck and editorconfig-checker at pinned releases
+        run: .github/install-linters.sh
+      - name: ShellCheck every script and bats file
+        run: '"$HOME/.local/linters/bin/shellcheck" bin/*.sh .github/*.sh tests/*.bats'
+      - name: Check every file against .editorconfig
+        run: '"$HOME/.local/linters/bin/editorconfig-checker"'
+
   good-tree-passes:
     runs-on: ubuntu-latest
     timeout-minutes: 5

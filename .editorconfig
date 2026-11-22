@@ -1,0 +1,31 @@
+# Whitespace and layout for every file in this repository, enforced in CI by
+# editorconfig-checker. An exemption names its reason beside it.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.sh]
+indent_size = 4
+max_line_length = 120
+
+# Tests write fixture JSON and stub scripts inline, one record to a line, so
+# a column limit would split data rather than code.
+[*.bats]
+indent_size = 2
+max_line_length = off
+
+# A workflow's `if:` conditions and one-line commands read as a unit.
+[*.{yml,yaml}]
+indent_size = 2
+max_line_length = off
+
+# Prose and tables: a table row cannot wrap, and list continuations are not
+# indented in fixed steps.
+[*.md]
+indent_size = unset
+max_line_length = off
