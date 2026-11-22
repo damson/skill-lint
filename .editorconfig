@@ -24,9 +24,6 @@ max_line_length = off
 indent_size = 2
 max_line_length = off
 
-[*.json]
-indent_size = 2
-
 # Prose and tables: a table row cannot wrap, and list continuations are not
 # indented in fixed steps.
 [*.md]
